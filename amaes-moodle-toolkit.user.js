@@ -3443,8 +3443,8 @@
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <button id="btn-banner-push-gh" class="amaes-banner-btn amaes-banner-btn-primary" style="background: #2563eb; color: #ffffff; border: 1px solid #3b82f6; border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; width: auto;" title="Push verified answers directly to public community GitHub database">
-                    ${ICONS.github} <span>Push to GitHub</span>
+                <button id="btn-banner-contribute-hub" class="amaes-banner-btn" style="background: linear-gradient(135deg, #10b981, #047857); color: #ffffff; border: none; border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;" title="1-Click zero-token submission to community GitHub repository with automated anti-sabotage merge">
+                    ${ICONS.upload} <span>Share to Community Hub</span>
                 </button>
                 <button id="btn-banner-export-json" class="amaes-banner-btn amaes-banner-btn-secondary" style="background: rgba(255,255,255,0.08); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; width: auto;" title="Download JSON file for classmates or local auto-sync">
                     ${ICONS.download} <span>Download JSON</span>
@@ -3472,31 +3472,12 @@
         }
 
         // Banner Action Handlers
-        const _el__btn_banner_push_gh_ = document.getElementById('btn-banner-push-gh');
-        if (_el__btn_banner_push_gh_) _el__btn_banner_push_gh_.onclick = async () => {;
-            const btn = document.getElementById('btn-banner-push-gh');
-            btn.disabled = true;
-            btn.innerHTML = `${ICONS.upload} <span>Pushing...</span>`;
-            try {
-                const res = await pushAnswersToGitHub(harvested.subjectCode, harvested.questions, {
-                    quizTitle: harvested.quizTitle,
-                    gradeText: harvested.gradeText,
-                    courseTitle: harvested.course
-                });
-                if (res && res.success) {
-                    if (res.mode === 'api') {
-                        showToast(`Successfully pushed ${res.count} answers to GitHub database!`);
-                    } else if (res.mode === 'web_edit') {
-                        showToast(`Copied JSON to clipboard! Paste into GitHub editor.`);
-                    }
-                }
-            } catch (err) {
-                alert(`GitHub Push Error: ${err.message}\n\nTo push in 1 click, click 'Config' in the Toolkit panel to set your GitHub Token.`);
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = `${ICONS.github} <span>Push to GitHub</span>`;
-            }
-        };
+        const btnBannerHub = document.getElementById('btn-banner-contribute-hub');
+        if (btnBannerHub) {
+            btnBannerHub.onclick = () => {
+                showCommunityContributionModal(harvested.subjectCode);
+            };
+        }
 
         const _el__btn_banner_export_json_ = document.getElementById('btn-banner-export-json');
         if (_el__btn_banner_export_json_) _el__btn_banner_export_json_.onclick = () => {;
