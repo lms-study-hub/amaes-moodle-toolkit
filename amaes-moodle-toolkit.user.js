@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.0
+// @version      1.0.1
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.0";
+    const SCRIPT_VERSION = "v1.0.1";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -1413,15 +1413,17 @@
 
                 const firstBlockedQue = unverifiedQuestions[0];
                 const qData = extractQuestionData(firstBlockedQue);
+                const willIncludeContext = shouldInjectAiContext(qData ? qData.qNum : null);
                 const aiPromptText = formatQuestionForAI(firstBlockedQue, aiPromptHint);
 
                 // Auto-copy for AI
                 copyToClipboard(aiPromptText).then(() => {
-                    showToast(`Question #${qData ? qData.qNum : ''} not in DB: Auto-copied for AI!`);
+                    const ctxLabel = willIncludeContext ? 'with Course Context' : 'for AI';
+                    showToast(`Question #${qData ? qData.qNum : ''} not in DB: Auto-copied ${ctxLabel}!`);
                 }).catch(() => {});
 
                 setLog(
-                    `<b>Co-Pilot Paused:</b> Question #${qData ? qData.qNum : ''} not in DB (auto-copied for AI). ` +
+                    `<b>Co-Pilot Paused:</b> Question #${qData ? qData.qNum : ''} not in DB (auto-copied ${willIncludeContext ? 'with Course Context' : 'for AI'}). ` +
                     `Select your answer and click <b>Next page</b> when ready.`,
                     "var(--accent-amber)"
                 );
@@ -2465,8 +2467,54 @@
         };
     }
 
+    // ==========================================
+    // AI Context Prompt Injection (1st Question)
+    // ==========================================
+
+    function getQuizSessionKey() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const attempt = urlParams.get('attempt');
+        if (attempt) return `attempt_${attempt}`;
+        const cmid = urlParams.get('cmid');
+        if (cmid) return `cmid_${cmid}`;
+        const courseInfo = detectCourseInfo();
+        if (courseInfo.subjectCode || courseInfo.currentActivityTitle) {
+            return `quiz_${courseInfo.subjectCode}_${courseInfo.currentActivityTitle}`.replace(/[^a-zA-Z0-9_]/g, '_');
+        }
+        return 'quiz_active_session';
+    }
+
+    function hasAiContextBeenSent() {
+        return sessionStorage.getItem(`amaes_ai_context_sent_${getQuizSessionKey()}`) === 'true';
+    }
+
+    function markAiContextSent() {
+        sessionStorage.setItem(`amaes_ai_context_sent_${getQuizSessionKey()}`, 'true');
+    }
+
+    function shouldInjectAiContext(qNum = null) {
+        if (!checkIsQuizPage()) return false;
+        if (!hasAiContextBeenSent()) return true;
+        if (qNum === 1 || qNum === '1') return true;
+        return false;
+    }
+
+    function buildAiContextIntro() {
+        const courseInfo = detectCourseInfo();
+        const details = [];
+        if (courseInfo.subjectCode) details.push(`Course Code: ${courseInfo.subjectCode}`);
+        if (courseInfo.subjectName) details.push(`Subject: ${courseInfo.subjectName}`);
+        if (courseInfo.currentActivityTitle) details.push(`Activity: ${courseInfo.currentActivityTitle}`);
+
+        const header = details.length > 0 ? details.join(' | ') : 'AMAES Online Course Quiz';
+
+        return `[Context: ${header}]\n` +
+               `Act as an expert academic assistant for this course. For each quiz question I provide, analyze carefully and reply ONLY with the correct option letter (a, b, c, or d) and the exact choice text. Keep it direct with no explanations.\n\n---\n\n`;
+    }
+
     // Format a single question and choices cleanly for AI with strict A/B/C/D direct response directive
-    function formatQuestionForAI(que, withHint = true) {
+    // Injects rich course context on the first question of a quiz session
+    function formatQuestionForAI(que, withHint = true, forceContext = null) {
         const data = extractQuestionData(que);
         if (!data || !data.qText) return '';
 
@@ -2492,6 +2540,13 @@
             }
         }
 
+        const includeContext = forceContext !== null ? forceContext : shouldInjectAiContext(data.qNum);
+        if (includeContext) {
+            const intro = buildAiContextIntro();
+            output = `${intro}${output}`;
+            markAiContextSent();
+        }
+
         return output.trim();
     }
 
@@ -2505,7 +2560,7 @@
 
         const formatted = [];
         queList.forEach((que, idx) => {
-            const itemText = formatQuestionForAI(que, false);
+            const itemText = formatQuestionForAI(que, false, false);
             if (itemText) {
                 formatted.push(`Question ${idx + 1}:\n${itemText}`);
             }
@@ -2515,7 +2570,10 @@
         if (withHint && res) {
             res += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and exact text for each question. Do NOT explain.`;
         }
-        return res.trim();
+
+        const intro = buildAiContextIntro();
+        markAiContextSent();
+        return `${intro}${res}`.trim();
     }
 
     // Inject sleek "Copy for AI" and "Copy Image" buttons on each question card in Moodle
@@ -2546,6 +2604,8 @@
             btnText.onclick = async (e) => {
                 e.preventDefault();
                 e.stopPropagation();
+                const qData = extractQuestionData(que);
+                const willIncludeContext = shouldInjectAiContext(qData ? qData.qNum : null);
                 const text = formatQuestionForAI(que, aiPromptHint);
                 if (!text) return;
                 try {
@@ -2553,7 +2613,10 @@
                     btnText.innerHTML = `${ICONS.check} <span>Copied!</span>`;
                     btnText.style.borderColor = 'var(--accent-green, #10b981)';
                     btnText.style.color = 'var(--accent-green, #10b981)';
-                    showToast('Question & choices copied for AI!');
+                    showToast(willIncludeContext ? 'Question copied with Course AI Context!' : 'Question & choices copied for AI!');
+                    if (willIncludeContext) {
+                        setLog("Copied question with Course Context for AI.", "var(--accent-green)");
+                    }
                     setTimeout(() => {
                         btnText.innerHTML = `${ICONS.sparkles} <span>Copy AI</span>`;
                         btnText.style.borderColor = '';
@@ -4487,8 +4550,9 @@
                 .sub-label {
                     display: inline-flex;
                     align-items: center;
-                    gap: 5px;
+                    gap: 6px;
                     font-size: 11px;
+                    white-space: nowrap;
                 }
 
                 .arrow-container {
@@ -4496,6 +4560,7 @@
                     align-items: center;
                     color: var(--text-muted);
                     transition: transform 0.15s ease;
+                    flex-shrink: 0;
                 }
 
                 .amaes-btn {
@@ -4808,12 +4873,14 @@
                     setLog("<b>No questions found</b> on this page.", "var(--accent-pink)");
                     return;
                 }
+                const qData = extractQuestionData(queList[0]);
+                const willIncludeContext = shouldInjectAiContext(qData ? qData.qNum : null);
                 const text = formatQuestionForAI(queList[0], aiPromptHint);
                 try {
                     await copyToClipboard(text);
                     btnCopyCurrQ.innerHTML = `${ICONS.check} <span>Copied!</span>`;
-                    showToast('Question & choices copied for AI!');
-                    setLog("Copied current question & choices for AI!", "var(--accent-green)");
+                    showToast(willIncludeContext ? 'Question copied with Course AI Context!' : 'Question & choices copied for AI!');
+                    setLog(willIncludeContext ? 'Copied current question with Course AI Context!' : 'Copied current question & choices for AI!', "var(--accent-green)");
                     setTimeout(() => {
                         btnCopyCurrQ.innerHTML = `${ICONS.copy} <span>Copy Question</span>`;
                     }, 1800);
@@ -5350,25 +5417,8 @@ setupPersistentAccordion('mod-search-header', 'mod-search-body', 'mod-search-arr
 
 setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arrow', 'amaes_pref_mod_marker', !isQuiz);
 
-        const subDoneHeader = document.getElementById('sub-done-header');
-        const subDoneBody = document.getElementById('sub-done-body');
-        const subDoneArrow = document.getElementById('sub-done-arrow');
-
-        const subUndoHeader = document.getElementById('sub-undo-header');
-        const subUndoBody = document.getElementById('sub-undo-body');
-        const subUndoArrow = document.getElementById('sub-undo-arrow');
-
-        if (subDoneHeader) subDoneHeader.onclick = () => {
-            const isHidden = subDoneBody.style.display === 'none';
-            subDoneBody.style.display = isHidden ? 'flex' : 'none';
-            subDoneArrow.innerText = isHidden ? ICONS.chevronDown : ICONS.chevronRight;
-        };
-
-        if (subUndoHeader) subUndoHeader.onclick = () => {
-            const isHidden = subUndoBody.style.display === 'none';
-            subUndoBody.style.display = isHidden ? 'flex' : 'none';
-            subUndoArrow.innerText = isHidden ? ICONS.chevronDown : ICONS.chevronRight;
-        };
+        setupPersistentAccordion('sub-done-header', 'sub-done-body', 'sub-done-arrow', 'amaes_pref_sub_done', false);
+        setupPersistentAccordion('sub-undo-header', 'sub-undo-body', 'sub-undo-arrow', 'amaes_pref_sub_undo', false);
 
         // Panel Minimize State Persistence
         const savedMinimized = localStorage.getItem('amaes_pref_minimized') === 'true';
