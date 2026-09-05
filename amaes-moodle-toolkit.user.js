@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.2
+// @version      1.0.3
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.2";
+    const SCRIPT_VERSION = "v1.0.3";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -3810,6 +3810,47 @@
                 <!-- Body Scrollable -->
                 <div style="padding: 16px 20px; overflow-y: auto; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 12px;">
                     
+                    <!-- 0. Extension & Browser Setup (Violentmonkey & Developer Mode) -->
+                    <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
+                            <div style="font-weight: 700; color: #34d399; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.download} <span>How to Install & Browser Prerequisites</span>
+                            </div>
+                            <button id="btn-copy-install-guide" class="amaes-btn amaes-btn-outline" style="font-size: 10px; padding: 3px 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Copy complete step-by-step installation instructions for classmates">
+                                ${ICONS.copy} <span>Copy Classmate Guide</span>
+                            </button>
+                        </div>
+
+                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary, #cbd5e1);">
+                            <div>
+                                <b style="color: #fff;">1. Install a Userscript Manager (Violentmonkey Recommended):</b>
+                                <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap;">
+                                    <a href="https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Violentmonkey (Chrome/Brave/Edge)</a>
+                                    <span style="color: var(--text-muted);">•</span>
+                                    <a href="https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Violentmonkey (Firefox)</a>
+                                    <span style="color: var(--text-muted);">•</span>
+                                    <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener noreferrer" style="color: #94a3b8; text-decoration: underline;">Tampermonkey</a>
+                                </div>
+                            </div>
+
+                            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 8px 10px;">
+                                <div style="color: #fbbf24; font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 5px;">
+                                    ⚠️ Crucial Step for Chrome / Brave / Edge Users:
+                                </div>
+                                <div style="font-size: 11px; color: #fde68a;">
+                                    Open your browser's extensions page (<code>chrome://extensions</code> or <code>edge://extensions</code>) and toggle <b>"Developer Mode"</b> to <b>ON</b> (top-right switch). Modern Chromium browsers block userscripts from executing on pages unless Developer Mode is active!
+                                </div>
+                            </div>
+
+                            <div>
+                                <b style="color: #fff;">2. Install or Update Script:</b>
+                                <div style="margin-top: 2px;">
+                                    Once Violentmonkey is installed and Developer Mode is enabled, open <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" style="color: #34d399; font-weight: 600; text-decoration: underline;">Install Script (Direct Link)</a> and click <b>"Confirm installation"</b>.
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                     <!-- 1. Safe Co-Pilot -->
                     <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
                         <div style="font-weight: 700; color: var(--accent-blue, #3b82f6); font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
@@ -3996,6 +4037,33 @@
                         if (welcomeUpdateLabel) welcomeUpdateLabel.textContent = "Check Updates";
                     }
                 });
+            };
+        }
+
+        const btnCopyInstallGuide = document.getElementById('btn-copy-install-guide');
+        if (btnCopyInstallGuide) {
+            btnCopyInstallGuide.onclick = () => {
+                const guideText = `🎓 AMAES & ACLC Moodle Toolkit - Setup & Installation Guide\n\n` +
+                    `Step 1: Install Violentmonkey (Recommended Userscript Manager):\n` +
+                    `• Chrome / Brave: https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag\n` +
+                    `• Firefox: https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/\n` +
+                    `• Edge: https://microsoftedge.microsoft.com/addons/detail/violentmonkey/eeagobfjfgddacbcigncyclcoaebeent\n\n` +
+                    `Step 2 (CRITICAL for Chrome / Brave / Edge / Opera):\n` +
+                    `• Open chrome://extensions (or edge://extensions) in your browser.\n` +
+                    `• Turn ON "Developer mode" in the top-right corner.\n` +
+                    `(Without Developer mode, modern Chromium browsers block all userscripts from running!)\n\n` +
+                    `Step 3: Install the Script:\n` +
+                    `• Open this raw link: ${SCRIPT_RAW_URL}\n` +
+                    `• Violentmonkey will open a tab — click "Confirm installation".\n\n` +
+                    `Step 4: Go to https://semestral.amaes.com/ and log in!\n` +
+                    `The toolkit panel will automatically appear in the bottom-right corner!`;
+
+                if (typeof GM_setClipboard !== 'undefined') {
+                    GM_setClipboard(guideText);
+                } else if (navigator.clipboard) {
+                    navigator.clipboard.writeText(guideText);
+                }
+                showToast("Setup & install guide copied to clipboard!");
             };
         }
 
@@ -4403,6 +4471,18 @@
                         </div>
                     </div>
                 </div>
+
+                    <!-- CARD: Setup & Classmate Sharing Guide -->
+                    <div class="amaes-card" style="border: 1px solid rgba(59, 130, 246, 0.35); background: rgba(59, 130, 246, 0.05); margin-top: 2px;">
+                        <div style="padding: 7px 10px; display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #93c5fd;">
+                                ${ICONS.help} <span>Browser Setup & Guide</span>
+                            </div>
+                            <button id="btn-open-install-guide" class="amaes-btn amaes-btn-blue" style="font-size: 10px; padding: 3px 8px; cursor: pointer;" title="Open complete Violentmonkey / Developer mode setup instructions">
+                                <span>Open Guide</span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 <!-- Stop Button -->
                 <button id="amaes-stop-btn" class="amaes-btn amaes-btn-stop" style="display: none; margin-bottom: 6px;">
@@ -5710,6 +5790,13 @@ setupPersistentAccordion('mod-search-header', 'mod-search-body', 'mod-search-arr
             window.open(url, '_blank');
             setLog(`Opened Google search for: "<b>${query}</b>"`, "var(--accent-blue)");
         };
+
+        const btnOpenInstallGuide = document.getElementById('btn-open-install-guide');
+        if (btnOpenInstallGuide) {
+            btnOpenInstallGuide.onclick = () => {
+                showWelcomeOnboardingModal(true);
+            };
+        }
 
         // Theme Toggle Handler
         if (themeBtn) themeBtn.onclick = () => {
