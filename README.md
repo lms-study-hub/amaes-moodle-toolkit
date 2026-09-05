@@ -1,11 +1,11 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.0.1-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.1)
+[![Version](https://img.shields.io/badge/version-1.0.2-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.2)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Tampermonkey%20%7C%20Violentmonkey-darkblue.svg)](https://www.tampermonkey.net/)
 
-> **Version 1.0.1** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.0.2** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
@@ -21,7 +21,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Tampermonkey will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.0.1`) in the panel header or inside the **Quick Start Guide** modal to immediately check GitHub for updates.
+- **On-Demand Check**: Click the version badge (`v1.0.2`) in the panel header or inside the **Quick Start Guide** modal to immediately check GitHub for updates.
 
 ---
 
@@ -33,6 +33,7 @@ The **AMAES & ACLC Moodle Toolkit** is an advanced paired userscript designed fo
 - **Custom SVG Iconography**: All generic unicode emojis have been replaced with a unified Lucide-style vector icon set (`ICONS`). No low-quality AI aesthetic—designed to be easy on the eyes during late-night study sessions.
 - **Official Branding**: Features the official **ACLC logo** alongside AMAES in both the floating top app bar and the welcome guide.
 - **Adaptive Dark & Light Modes**: Seamlessly switches between high-contrast dark theme and clean light theme with persistent preference storage.
+- **Rich Interactive Tooltips**: Every button, switch, and field features an explanatory hover tooltip.
 
 ---
 
@@ -43,9 +44,10 @@ To prevent accidental submissions or overwhelming new users, **all aggressive au
 | Feature | Default Setting | Description |
 | :--- | :---: | :--- |
 | **Master Auto-Quiz** | **PAUSED (Off)** | Will never automatically start clicking without your explicit command. |
-| **Solver Personality** | **Co-Pilot (Safe)** | Auto-picks known answers. Pauses safely when an unknown question appears. |
+| **Solver Personality** | **Co-Pilot** | Auto-picks known answers. Pauses safely when an unknown question appears. |
 | **Auto-Highlight** | **Enabled (On)** | Non-destructive visual badges on quiz choices. |
 | **Auto-Copy for AI** | **Enabled (On)** | Copies unknown question + choices cleanly to clipboard for Gemini/ChatGPT. |
+| **Keyboard Navigation** | **Enabled (On)** | Fast keybindings for hands-free quiz navigation. |
 | **Auto-Next Page** | **Disabled (Off)** | Will never jump pages automatically unless explicitly enabled. |
 | **Auto-Submit Quiz** | **Disabled (Off)** | Prevents accidental final exam/quiz submission. |
 | **Auto-Download JSON** | **Disabled (Off)** | Prevents file clutter on quiz review pages. |
@@ -61,8 +63,17 @@ Instead of an overwhelming vertical list of buttons, the toolkit is organized in
 ### 1. `Quiz Solver` (Companion & Co-Pilot)
 - **Master Start/Pause Button**: One-click toggle for hands-free solving.
 - **Personality Mode**:
-  - **Co-Pilot (Safe Companion)**: Highlights and selects confirmed answers. If a question is not in the database, it safely pauses, copies the question for AI, and waits for you.
-  - **Speedrun (Fast)**: Auto-picks known answers and skips unknown questions immediately.
+  - **Co-Pilot**: Highlights and selects confirmed answers. If a question is not in the database, it safely pauses, copies the question for AI, and waits for you.
+  - **Speedrun**: Auto-picks known answers and skips unknown questions immediately.
+- **Toggleable Keyboard Shortcuts**:
+  | Key | Action |
+  | :---: | :--- |
+  | `N` / `Space` / `Enter` | Trigger **Next page** navigation button |
+  | `1` – `4` or `A` – `D` | Select choice option (Option A, B, C, D) |
+  | `C` | Copy current question & choices for AI |
+  | `P` | Pause or Resume Auto-Quiz solver |
+  | `H` | Highlight answers from database |
+  *(Note: Keybindings automatically deactivate when focused on input or textarea fields to prevent interference.)*
 - **Smart AI Context Prompting**:
   - The **first question** copied in a quiz attempt automatically injects rich course context (Subject Code, Course Title, and Activity Name) and a strict direct-answer instruction for the AI.
   - Subsequent questions in the same quiz session copy only clean question text and choices to keep your AI chat streamlined without repetitive headers.
@@ -70,6 +81,8 @@ Instead of an overwhelming vertical list of buttons, the toolkit is organized in
 - **In-Question AI Buttons**: Injected buttons beside each question to copy questions or choice images with zero UI clipping.
 
 ### 2. `Answer DB` (Verified Community Hub)
+- **Share Database to Community Hub**: 1-click contribution modal allowing students to share collected answers directly to GitHub without needing any token or account.
+- **Automated Anti-Sabotage Engine**: Submissions are automatically parsed and merged by GitHub Actions CI with consensus locks and schema validation. Verified teacher answers cannot be overwritten by low scores or malicious inputs.
 - **Auto-Find AMAUOED Link**: 1-click automatic discovery of the official `amauoed.com` study guide link matching the current subject code, with automatic scraping and caching into the local database.
 - **Cloud Database Sync**: 1-click sync with the free community repository (`lms-study-hub/database`).
 - **AMAUOED Scraper**: Extract study guide questions directly from `amauoed.com` course URLs.

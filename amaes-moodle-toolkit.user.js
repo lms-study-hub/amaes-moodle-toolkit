@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.1
+// @version      1.0.2
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.1";
+    const SCRIPT_VERSION = "v1.0.2";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -377,6 +377,7 @@
     let cloudDbBaseUrl = localStorage.getItem('amaes_cloud_db_url') || 'https://raw.githubusercontent.com/lms-study-hub/database/main/data/';
     let aiPromptHint = localStorage.getItem('amaes_ai_prompt_hint') !== 'false'; // default true for clean a/b/c/d answers
     let showInQuestionAiBtns = localStorage.getItem('amaes_show_in_question_ai_btns') !== 'false'; // default true
+    let enableKeyboardShortcuts = localStorage.getItem('amaes_enable_hotkeys') !== 'false'; // default true: N, Space, 1-4, C, P, H
 
     // ==========================================
     // Authentic ACLC Transparent PNG Logo
@@ -1728,6 +1729,101 @@
         }
     }
 
+    // Toggleable Keyboard Navigation & Fast Shortcuts for Quiz
+    function setupQuizKeyboardShortcuts() {
+        window.addEventListener('keydown', (e) => {
+            if (!enableKeyboardShortcuts) return;
+
+            // Strict safety: ignore hotkeys if typing in input fields
+            const active = document.activeElement;
+            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+                return;
+            }
+
+            if (e.ctrlKey || e.altKey || e.metaKey) return;
+            if (!checkIsQuizAttemptPage()) return;
+
+            const key = e.key ? e.key.toUpperCase() : '';
+
+            // 1. Next Page / Submit Navigation: 'N' or 'Space' or 'Enter'
+            if (key === 'N' || key === ' ' || key === 'ENTER') {
+                const nextBtn = findQuizNextButton();
+                if (nextBtn) {
+                    e.preventDefault();
+                    showToast("⌨ Shortcut: Next Page");
+                    setLog("Keyboard shortcut triggered: <b>Next Page</b>", "var(--accent-blue)");
+                    nextBtn.click();
+                }
+                return;
+            }
+
+            // 2. Copy Current Question for AI: 'C'
+            if (key === 'C') {
+                const btnCopy = document.getElementById('btn-copy-curr-q');
+                if (btnCopy) {
+                    e.preventDefault();
+                    btnCopy.click();
+                } else {
+                    const queList = document.querySelectorAll('.que');
+                    if (queList.length > 0) {
+                        e.preventDefault();
+                        const text = formatQuestionForAI(queList[0], aiPromptHint);
+                        copyToClipboard(text);
+                        showToast("⌨ Shortcut: Question copied for AI!");
+                    }
+                }
+                return;
+            }
+
+            // 3. Pause / Start Auto-Quiz: 'P'
+            if (key === 'P') {
+                e.preventDefault();
+                toggleAutoQuizMode();
+                return;
+            }
+
+            // 4. Highlight Database Answers: 'H'
+            if (key === 'H') {
+                const hlBtn = document.getElementById('btn-hl-answers') || document.getElementById('btn-db-quick-highlight');
+                if (hlBtn) {
+                    e.preventDefault();
+                    hlBtn.click();
+                }
+                return;
+            }
+
+            // 5. Select Choice Option: 1-4 or A-D
+            let optIndex = -1;
+            if (key >= '1' && key <= '9') {
+                optIndex = parseInt(key, 10) - 1;
+            } else if (['A', 'B', 'C', 'D'].includes(key)) {
+                optIndex = key.charCodeAt(0) - 65;
+            }
+
+            if (optIndex >= 0) {
+                const questions = Array.from(document.querySelectorAll('.que'));
+                if (questions.length === 0) return;
+
+                // Target question currently in view or first unanswered
+                let targetQue = questions.find(q => {
+                    const rect = q.getBoundingClientRect();
+                    return rect.top >= 0 && rect.top <= (window.innerHeight || 800);
+                }) || questions.find(q => !q.classList.contains('answered') && !q.classList.contains('complete')) || questions[0];
+
+                if (targetQue) {
+                    const choices = Array.from(targetQue.querySelectorAll('.answer input[type="radio"], .answer input[type="checkbox"]'));
+                    if (choices[optIndex]) {
+                        e.preventDefault();
+                        choices[optIndex].click();
+                        const choiceLabel = key >= '1' && key <= '9' ? String.fromCharCode(65 + optIndex) : key;
+                        showToast(`⌨ Shortcut: Selected Choice ${choiceLabel}`);
+                        setLog(`Keyboard shortcut: Selected choice <b>${choiceLabel}</b>`, "var(--accent-blue)");
+                    }
+                }
+            }
+        });
+    }
+
     // Match questions & auto-highlight / auto-select on Moodle Quiz
     function highlightQuizAnswers(questionsDb, autoSelect = false, isManualSelect = false) {
         if (!questionsDb || questionsDb.length === 0) {
@@ -2382,9 +2478,11 @@
     function extractQuestionData(que) {
         if (!que) return null;
 
-        // 1. Question Number (e.g. Question 1)
+        // 1. Question Number (clean digits only, e.g. "4", avoiding "Question #Question 4")
         const numElem = que.querySelector('.info .no, .qno');
-        const qNum = numElem ? numElem.innerText.replace(/\s+/g, ' ').trim() : 'Question';
+        let rawNum = numElem ? numElem.innerText.replace(/\s+/g, ' ').trim() : '';
+        const matchDigits = rawNum.match(/\d+/);
+        const qNum = matchDigits ? matchDigits[0] : (rawNum.replace(/^Question\s*/i, '').trim() || '1');
 
         // 2. Question Text (cleanly processed through cleanDOMToAI)
         const qtextElem = que.querySelector('.qtext, .formulation .qtext');
@@ -3441,6 +3539,212 @@
         };
     }
 
+    // Helper to retrieve all locally cached subject databases
+    function getAllSavedSubjectDatabases() {
+        const dbs = {};
+        for (let i = 0; i < localStorage.length; i++) {
+            const key = localStorage.key(i);
+            if (key && key.startsWith('amaes_amauoed_cache_')) {
+                const code = key.replace('amaes_amauoed_cache_', '').toUpperCase();
+                try {
+                    const data = JSON.parse(localStorage.getItem(key));
+                    if (Array.isArray(data) && data.length > 0) {
+                        dbs[code] = data;
+                    }
+                } catch (e) {}
+            }
+        }
+        return dbs;
+    }
+
+    // Community Database Contribution & Anti-Sabotage Submission Modal
+    function showCommunityContributionModal(initialSubCode) {
+        const existing = document.getElementById('amaes-contribute-modal');
+        if (existing) existing.remove();
+
+        const allDbs = getAllSavedSubjectDatabases();
+        const availableCodes = Object.keys(allDbs);
+
+        let targetCode = (initialSubCode && allDbs[initialSubCode.toUpperCase()]) ?
+            initialSubCode.toUpperCase() :
+            (availableCodes[0] || (initialSubCode ? initialSubCode.toUpperCase() : 'GENERAL'));
+
+        const modal = document.createElement('div');
+        modal.id = 'amaes-contribute-modal';
+        modal.style.cssText = `
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.75);
+            backdrop-filter: blur(4px);
+            z-index: 100003;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            box-sizing: border-box;
+        `;
+
+        function generatePayload(code, qList) {
+            return {
+                subjectCode: code,
+                subjectName: (typeof courseInfo !== 'undefined' && courseInfo && courseInfo.code === code) ? courseInfo.fullTitle : code,
+                contributor: "community",
+                timestamp: new Date().toISOString(),
+                totalQuestions: qList.length,
+                questions: qList.map(q => ({
+                    question: q.question || q.qText || "",
+                    answer: q.answer || q.correctAnswer || "",
+                    choices: q.choices || [],
+                    confidence: typeof q.confidence === 'number' ? q.confidence : 1.0,
+                    source: q.source || "community_contribute"
+                }))
+            };
+        }
+
+        function renderModal() {
+            const questions = allDbs[targetCode] || [];
+            const payload = generatePayload(targetCode, questions);
+            const payloadStr = JSON.stringify(payload, null, 2);
+
+            modal.innerHTML = `
+                <div style="
+                    background: var(--surface, #1e293b);
+                    border: 1px solid var(--border, #334155);
+                    border-radius: 14px;
+                    max-width: 580px;
+                    width: 100%;
+                    box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+                    overflow: hidden;
+                    color: var(--text-primary, #f8fafc);
+                    display: flex;
+                    flex-direction: column;
+                    max-height: 90vh;
+                ">
+                    <!-- Header -->
+                    <div style="
+                        padding: 14px 20px;
+                        background: linear-gradient(135deg, #10b981, #047857);
+                        color: #ffffff;
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                    ">
+                        <div style="display: flex; align-items: center; gap: 8px;">
+                            ${ICONS.upload}
+                            <span style="font-weight: 800; font-size: 15px;">Share Database to Community Hub</span>
+                        </div>
+                        <button id="amaes-contribute-close-btn" style="
+                            background: rgba(255,255,255,0.2);
+                            border: none;
+                            color: #fff;
+                            width: 26px; height: 26px;
+                            border-radius: 50%;
+                            cursor: pointer;
+                            display: flex; align-items: center; justify-content: center;
+                            font-size: 15px; font-weight: bold;
+                        ">&times;</button>
+                    </div>
+
+                    <!-- Body Content -->
+                    <div style="padding: 16px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; font-size: 12px; line-height: 1.5;">
+                        <!-- Explanation & Anti-Sabotage Notice -->
+                        <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px;">
+                            <div style="font-weight: 700; color: #10b981; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.shieldCheck} Automated Anti-Sabotage Consensus Engine
+                            </div>
+                            <div style="color: var(--text-secondary, #cbd5e1); font-size: 11px;">
+                                Submissions are processed automatically by GitHub Actions CI. Teacher keys and consensus answers are strictly protected from accidental or malicious overwrites. Zero registration or tokens required!
+                            </div>
+                        </div>
+
+                        <!-- Subject Selection -->
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-subtle, #0f172a); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle, #334155);">
+                            <div>
+                                <span style="font-weight: 700;">Subject Code:</span>
+                                ${availableCodes.length > 1 ? `
+                                    <select id="amaes-contribute-sub-select" style="margin-left: 6px; background: var(--surface, #1e293b); color: var(--text-primary, #f8fafc); border: 1px solid var(--border, #334155); border-radius: 4px; padding: 3px 6px; font-weight: 600;">
+                                        ${availableCodes.map(c => `<option value="${c}" ${c === targetCode ? 'selected' : ''}>${c} (${allDbs[c].length} Qs)</option>`).join('')}
+                                    </select>
+                                ` : `<b style="color: var(--accent-blue, #38bdf8); margin-left: 4px;">${targetCode}</b>`}
+                            </div>
+                            <span style="background: ${questions.length > 0 ? '#10b981' : '#f43f5e'}; color: #fff; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 10px;">
+                                ${questions.length} Answers Found
+                            </span>
+                        </div>
+
+                        <!-- Payload Preview -->
+                        <div>
+                            <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-secondary, #94a3b8); font-size: 11px;">Contribution Payload Preview:</div>
+                            <pre style="background: #020617; color: #a5f3fc; padding: 8px; border-radius: 6px; font-size: 10px; font-family: monospace; max-height: 140px; overflow: auto; border: 1px solid #1e293b; white-space: pre-wrap; word-break: break-all;">${payloadStr.length > 1000 ? payloadStr.slice(0, 1000) + '\n... (truncated for display)' : payloadStr}</pre>
+                        </div>
+
+                        <!-- Guide Steps -->
+                        <div style="font-size: 11px; color: var(--text-secondary, #94a3b8);">
+                            <b>How it works:</b> Clicking <b>"Submit to GitHub Hub"</b> opens a pre-filled GitHub issue in the open community repository. Click "Submit new issue" on GitHub and the automated merger bot will parse, validate, and incorporate the new questions within 60 seconds!
+                        </div>
+                    </div>
+
+                    <!-- Footer Actions -->
+                    <div style="
+                        padding: 12px 20px;
+                        background: var(--surface-subtle, #0f172a);
+                        border-top: 1px solid var(--border, #334155);
+                        display: flex;
+                        gap: 10px;
+                        justify-content: flex-end;
+                    ">
+                        <button id="amaes-contribute-copy-btn" class="amaes-btn amaes-btn-outline" style="padding: 6px 12px; font-size: 11px; cursor: pointer;">
+                            ${ICONS.copy} <span>Copy JSON</span>
+                        </button>
+                        <button id="amaes-contribute-submit-btn" class="amaes-btn" style="padding: 6px 14px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" ${questions.length === 0 ? 'disabled' : ''}>
+                            ${ICONS.upload} <span>Submit to GitHub Hub</span>
+                        </button>
+                    </div>
+                </div>
+            `;
+
+            document.getElementById('amaes-contribute-close-btn').onclick = () => modal.remove();
+
+            const selectEl = document.getElementById('amaes-contribute-sub-select');
+            if (selectEl) {
+                selectEl.onchange = (e) => {
+                    targetCode = e.target.value;
+                    renderModal();
+                };
+            }
+
+            document.getElementById('amaes-contribute-copy-btn').onclick = () => {
+                const textToCopy = JSON.stringify(payload, null, 2);
+                if (typeof GM_setClipboard !== 'undefined') {
+                    GM_setClipboard(textToCopy);
+                } else if (navigator.clipboard) {
+                    navigator.clipboard.writeText(textToCopy);
+                }
+                showToast("Payload JSON copied to clipboard!");
+            };
+
+            const submitBtn = document.getElementById('amaes-contribute-submit-btn');
+            if (submitBtn) {
+                submitBtn.onclick = () => {
+                    if (!questions || questions.length === 0) {
+                        alert("No questions found for this subject to submit.");
+                        return;
+                    }
+                    const issueTitle = `[Contribution] ${targetCode} (${questions.length} questions)`;
+                    const issueBody = `### Community Answer Contribution\n\n**Subject**: ${targetCode}\n**Total Questions**: ${questions.length}\n**Submitted At**: ${new Date().toISOString()}\n\n\`\`\`json\n${payloadStr}\n\`\`\`\n`;
+                    const ghUrl = `https://github.com/lms-study-hub/database/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(issueBody)}&labels=community-contribution`;
+                    window.open(ghUrl, '_blank');
+                    showToast("Opening GitHub issue contribution page...");
+                    setLog(`Opened GitHub community submission page for <b>${targetCode}</b>`, "var(--accent-green)");
+                };
+            }
+        }
+
+        renderModal();
+        document.body.appendChild(modal);
+    }
+
     // ==========================================
         // Welcome & Quick-Start Onboarding Modal
     function showWelcomeOnboardingModal(force = false) {
@@ -3815,91 +4119,82 @@
                 </div>
 
                 <!-- TAB PANE 1: Quiz Solver -->
-                <div id="tab-pane-quiz" class="amaes-tab-pane">
-                    <!-- MODULE 1: Autonomous Quiz Solver & AI Assistant -->
-                <div id="mod-ai-card" class="amaes-card">
-                    <div id="mod-ai-header" class="amaes-card-header">
-                        <div style="display: flex; align-items: center; gap: 6px;">
-                            ${ICONS.zap}
-                            <span class="header-label">Autonomous Quiz Solver</span>
+                <div id="tab-pane-quiz" class="amaes-tab-pane" style="padding: 8px; display: flex; flex-direction: column; gap: 6px;">
+                    <!-- Master Run / Pause Button -->
+                    <button id="btn-master-auto-quiz" class="amaes-btn" style="justify-content: center; padding: 7px; font-weight: 700; font-size: 11px; border: none; background: ${autoQuizMode ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #10b981, #059669)'}; color: #fff; cursor: pointer;" title="Toggle hands-free Autonomous Quiz Solver (Shortcut: P)">
+                        ${autoQuizMode ? ICONS.stop + ' <span>Pause Auto-Quiz</span>' : ICONS.play + ' <span>Start Auto-Quiz</span>'}
+                    </button>
+
+                    <!-- Personality Selector (Speedrun vs Co-Pilot) -->
+                    <div style="display: flex; flex-direction: column; gap: 3px; margin-top: 2px;">
+                        <label style="font-size: 10px; color: var(--text-muted); font-weight: 600;" title="Choose how the solver behaves when encountering questions">Solver Personality:</label>
+                        <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.25); padding: 3px; border-radius: 6px;">
+                            <button id="btn-personality-passive" class="amaes-btn ${quizPersonality === 'passive' ? 'amaes-btn-blue' : 'amaes-btn-outline'}" style="flex: 1; justify-content: center; font-size: 10px; padding: 4px 2px; cursor: pointer;" title="Co-Pilot: Automatically answers known questions from database. When an unknown question is reached, safely pauses, auto-copies for AI, and waits for your input.">
+                                ${ICONS.shieldCheck} <span>Co-Pilot</span>
+                            </button>
+                            <button id="btn-personality-aggressive" class="amaes-btn ${quizPersonality === 'aggressive' ? 'amaes-btn-pink' : 'amaes-btn-outline'}" style="flex: 1; justify-content: center; font-size: 10px; padding: 4px 2px; cursor: pointer;" title="Speedrun: Auto-picks known answers and skips unknown questions immediately without pausing.">
+                                ${ICONS.fastForward} <span>Speedrun (Fast)</span>
+                            </button>
                         </div>
-                        <span id="mod-ai-arrow" class="arrow-container">${ICONS.chevronRight}</span>
+                        <div id="personality-desc" style="font-size: 9.5px; color: var(--text-secondary); line-height: 1.3; margin-top: 1px;">
+                            ${quizPersonality === 'aggressive'
+                                ? '<b>Speedrun:</b> Auto-picks answers, skips unknown questions immediately, and auto-submits when done.'
+                                : '<b>Co-Pilot:</b> Auto-picks answers. On unknown question: safely pauses, auto-copies for AI, and waits for your input.'}
+                        </div>
                     </div>
 
-                    <div id="mod-ai-body" style="display: none; padding: 8px; flex-direction: column; gap: 6px;">
-                        <!-- Master Run / Pause Button -->
-                        <button id="btn-master-auto-quiz" class="amaes-btn" style="justify-content: center; padding: 7px; font-weight: 700; font-size: 11px; border: none; background: ${autoQuizMode ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #10b981, #059669)'}; color: #fff; cursor: pointer;" title="Toggle hands-free Autonomous Quiz Solver">
-                            ${autoQuizMode ? ICONS.stop + ' <span>Pause Auto-Quiz</span>' : ICONS.play + ' <span>Start Auto-Quiz</span>'}
+                    <!-- Action Buttons: Quick Highlight & Copy for AI -->
+                    <div style="display: flex; gap: 5px; margin-top: 2px;">
+                        <button id="btn-quick-hl" class="amaes-btn amaes-btn-green" style="flex: 1.2; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Highlight confirmed answers from database on current quiz questions (Shortcut: H)">
+                            ${ICONS.lightbulb} <span>Highlight</span>
                         </button>
-
-                        <!-- Personality Selector (Aggressive vs Passive) -->
-                        <div style="display: flex; flex-direction: column; gap: 3px; margin-top: 2px;">
-                            <label style="font-size: 10px; color: var(--text-muted); font-weight: 600;">Solver Personality:</label>
-                            <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.25); padding: 3px; border-radius: 6px;">
-                                <button id="btn-personality-passive" class="amaes-btn ${quizPersonality === 'passive' ? 'amaes-btn-blue' : 'amaes-btn-outline'}" style="flex: 1; justify-content: center; font-size: 10px; padding: 4px 2px; cursor: pointer;" title="Auto-picks known answers. When blocked by unknown question, auto-copies to AI and resumes after you click your answer.">
-                                    ${ICONS.shieldCheck} <span>Co-Pilot (Safe)</span>
-                                </button>
-                                <button id="btn-personality-aggressive" class="amaes-btn ${quizPersonality === 'aggressive' ? 'amaes-btn-pink' : 'amaes-btn-outline'}" style="flex: 1; justify-content: center; font-size: 10px; padding: 4px 2px; cursor: pointer;" title="Speedrun: Auto-picks known answers, skips unknown questions immediately, and auto-submits on completion!">
-                                    ${ICONS.fastForward} <span>Speedrun (Fast)</span>
-                                </button>
-                            </div>
-                            <div id="personality-desc" style="font-size: 9.5px; color: var(--text-secondary); line-height: 1.3; margin-top: 1px;">
-                                ${quizPersonality === 'aggressive'
-                                    ? '<b>Speedrun:</b> Auto-picks answers, skips unknown questions immediately, and auto-submits when done.'
-                                    : '<b>Co-Pilot:</b> Auto-picks answers. On unknown question: safely pauses, auto-copies for AI, and waits for your input.'}
-                            </div>
-                        </div>
-
-                                                <!-- Action Buttons: Quick Highlight & Copy for AI -->
-                        <div style="display: flex; gap: 5px; margin-top: 2px;">
-                            <button id="btn-quick-hl" class="amaes-btn amaes-btn-green" style="flex: 1.2; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Highlight answers from database on current quiz">
-                                ${ICONS.lightbulb} <span>Highlight</span>
-                            </button>
-                            <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Copy current question & choices cleanly formatted for AI">
-                                ${ICONS.copy} <span>Copy Q</span>
-                            </button>
-                            <button id="btn-copy-all-q" class="amaes-btn amaes-btn-outline" style="flex: 0.9; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Copy all questions on this page">
-                                ${ICONS.copy} <span>All</span>
-                            </button>
-                        </div>
-
-                        <!-- Solver & AI Toggles -->
-                        <div style="display: flex; flex-direction: column; gap: 3px; margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 4px;">
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-green); cursor: pointer; font-weight: 600;">
-                                <input id="chk-auto-pick" type="checkbox" ${autoPickQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Auto-Pick verified answers from DB</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;">
-                                <input id="chk-auto-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Auto-Next page</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="Smart Navigation: Bypass questions already answered by auto-answer and jump straight to unanswered questions">
-                                <input id="chk-smart-skip" type="checkbox" ${smartSkipQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Smart Skip: Jump directly to unanswered questions</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-pink); cursor: pointer; font-weight: 600;" title="Automatically click 'Submit all and finish' on summary screen">
-                                <input id="chk-auto-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Auto-Mark as Done (Auto-Submit Quiz)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;">
-                                <input id="chk-show-in-q-btns" type="checkbox" ${showInQuestionAiBtns ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Show "Copy for AI" buttons inside questions</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;">
-                                <input id="chk-ai-prompt-hint" type="checkbox" ${aiPromptHint ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Strict AI prompt (a, b, c, d only)</span>
-                            </label>
-                        </div>
+                        <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Copy current question & choices formatted for AI (injects Course Context on 1st question) (Shortcut: C)">
+                            ${ICONS.copy} <span>Copy Q</span>
+                        </button>
+                        <button id="btn-copy-all-q" class="amaes-btn amaes-btn-outline" style="flex: 0.9; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Copy all questions on this page formatted for AI with single unified Course Context">
+                            ${ICONS.copy} <span>All</span>
+                        </button>
                     </div>
-                </div>
+
+                    <!-- Solver & AI Toggles -->
+                    <div style="display: flex; flex-direction: column; gap: 3px; margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 4px;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-green); cursor: pointer; font-weight: 600;" title="When checked, automatically selects the radio button / checkbox of verified answers found in database">
+                            <input id="chk-auto-pick" type="checkbox" ${autoPickQuiz ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Auto-Pick verified answers from DB</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after all verified questions on this page are answered">
+                            <input id="chk-auto-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Auto-Next page</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="Smart Navigation: Bypass questions already answered by auto-answer and jump straight to unanswered questions">
+                            <input id="chk-smart-skip" type="checkbox" ${smartSkipQuiz ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Smart Skip: Jump directly to unanswered questions</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-pink); cursor: pointer; font-weight: 600;" title="Automatically click 'Submit all and finish' on quiz summary review screen">
+                            <input id="chk-auto-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Auto-Mark as Done (Auto-Submit Quiz)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a78bfa; cursor: pointer; font-weight: 600;" title="Keyboard shortcuts: Space / N for Next page, C for Copy AI, P for Pause/Start, 1-4 / A-D to pick choices">
+                            <input id="chk-keyboard-shortcuts" type="checkbox" ${enableKeyboardShortcuts ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Keyboard Shortcuts (N/Space=Next, C=AI, P=Pause)</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Inject convenient 'Copy AI' and 'Copy Image' buttons directly above question cards in the Moodle page">
+                            <input id="chk-show-in-q-btns" type="checkbox" ${showInQuestionAiBtns ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Show "Copy for AI" buttons inside questions</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Appends strict directive 'Answer ONLY with option letter and exact text' to AI prompt">
+                            <input id="chk-ai-prompt-hint" type="checkbox" ${aiPromptHint ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Strict AI prompt (a, b, c, d only)</span>
+                        </label>
+                    </div>
                 </div>
 
                 <!-- TAB PANE 2: Verified Answer Database -->
-                <div id="tab-pane-db" class="amaes-tab-pane" style="display: none;">
+                <div id="tab-pane-db" class="amaes-tab-pane" style="display: none; padding: 8px; flex-direction: column; gap: 6px;">
                     <!-- Source URL Input & Auto-Find Button -->
                     <div style="display: flex; flex-direction: column; gap: 3px;">
                         <div style="display: flex; gap: 4px; align-items: center;">
-                            <input id="amauoed-url-input" type="text" value="${defaultAmauoedUrl}" placeholder="Paste or auto-find amauoed.com link..." style="
+                            <input id="amauoed-url-input" type="text" value="${defaultAmauoedUrl}" placeholder="Paste or auto-find amauoed.com link..." title="AMAUOED course answer key URL" style="
                                 flex: 1;
                                 min-width: 0;
                                 background: var(--bg);
@@ -3911,7 +4206,7 @@
                                 box-sizing: border-box;
                                 outline: none;
                             " />
-                            <button id="btn-autofind-amauoed" type="button" class="amaes-btn amaes-btn-blue" style="width: auto; padding: 5px 8px; font-size: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;" title="Auto-find & link amauoed.com course for ${subCode}">
+                            <button id="btn-autofind-amauoed" type="button" class="amaes-btn amaes-btn-blue" style="width: auto; padding: 5px 8px; font-size: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;" title="Auto-find & link amauoed.com study guide for ${subCode}">
                                 ${ICONS.search} <span>Auto-Find</span>
                             </button>
                         </div>
@@ -3919,29 +4214,29 @@
                     </div>
 
                     <!-- Fetch & Cache Button -->
-                    <button id="btn-fetch-amauoed" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 5px;">
+                    <button id="btn-fetch-amauoed" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 5px;" title="Scrape and cache questions from the linked AMAUOED course URL">
                         ${ICONS.download} <span id="fetch-btn-label">${cachedQuestions ? `Refresh Database (${cachedQuestions.length} in DB)` : 'Fetch & Sync Database'}</span>
                     </button>
 
                     <!-- Highlight & Auto-Select Row -->
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-hl-answers" class="amaes-btn amaes-btn-green" style="flex: 1.2; justify-content: center; padding: 5px 6px;" title="Highlight matching answers on this quiz">
+                        <button id="btn-hl-answers" class="amaes-btn amaes-btn-green" style="flex: 1.2; justify-content: center; padding: 5px 6px;" title="Highlight matching answers from database on current quiz">
                             ${ICONS.lightbulb} <span>Highlight</span>
                         </button>
-                        <button id="btn-select-answers" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 5px 6px;" title="Auto-click radio buttons for matched answers">
+                        <button id="btn-select-answers" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 5px 6px;" title="Automatically select radio buttons / checkboxes for matched answers">
                             ${ICONS.checkCircle} <span>Auto-Pick</span>
                         </button>
                     </div>
 
                     <!-- Share, Multi-Import & Cloud Sync Section -->
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Copy study guide text to share on Messenger/Discord">
+                        <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Copy clean study guide text to clipboard to share on Messenger or Discord">
                             ${ICONS.share} <span>Share</span>
                         </button>
-                        <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Download cached answers as JSON file">
+                        <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Download cached verified answers as a JSON file">
                             ${ICONS.download} <span>Export</span>
                         </button>
-                        <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1.2; justify-content: center; padding: 4px 6px;" title="Import & cross-reference one or multiple JSON files from classmates">
+                        <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1.2; justify-content: center; padding: 4px 6px;" title="Import & cross-reference one or multiple JSON files from classmates with consensus conflict resolution">
                             ${ICONS.upload} <span>Import Files</span>
                         </button>
                         <input id="file-import-json" type="file" multiple accept=".json" style="display: none;" />
@@ -3949,10 +4244,10 @@
 
                     <!-- Cloud Database Sync & Push Row -->
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Sync verified answers directly from free GitHub / Cloud database">
+                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Pull verified answers directly from free GitHub community database">
                             ${ICONS.cloudDownload} <span>Cloud Sync</span>
                         </button>
-                        <button id="btn-cloud-push" class="amaes-btn" style="flex: 1; justify-content: center; padding: 4px 6px; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; border: none; font-weight: 600;" title="Push your cached answers to community GitHub database">
+                        <button id="btn-cloud-push" class="amaes-btn" style="flex: 1; justify-content: center; padding: 4px 6px; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; border: none; font-weight: 600;" title="Push your cached answers directly to GitHub repository (via token)">
                             ${ICONS.github} <span>Push</span>
                         </button>
                         <button id="btn-config-cloud" class="amaes-btn amaes-btn-outline" style="flex: 0.7; justify-content: center; padding: 4px 6px;" title="Configure GitHub Token & Cloud Database Repository">
@@ -3960,17 +4255,22 @@
                         </button>
                     </div>
 
+                    <!-- 1-Click Community Contribution Hub -->
+                    <button id="btn-contribute-db" class="amaes-btn" style="justify-content: center; padding: 6px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" title="Share all collected verified answers to the community GitHub hub with automated anti-sabotage merge protection">
+                        ${ICONS.upload} <span>Share Database to Community Hub</span>
+                    </button>
+
                     <!-- Auto Settings for Review / Sync -->
                     <div style="display: flex; flex-direction: column; gap: 3px; background: var(--surface-subtle); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically highlight verified answers whenever you navigate to a quiz page">
                             <input id="chk-auto-hl-quiz" type="checkbox" ${autoHighlightQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-highlight on quiz open</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically download JSON backup when viewing a quiz review page">
                             <input id="chk-auto-dl-json" type="checkbox" ${localStorage.getItem('amaes_auto_dl_json') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-download JSON on Review</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically push verified questions to GitHub repository when viewing review page (requires token)">
                             <input id="chk-auto-push-github" type="checkbox" ${localStorage.getItem('amaes_auto_push_github') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-push to GitHub on Review</span>
                         </label>
@@ -4763,8 +5063,6 @@
 
         // --- MODULE 1: Autonomous Quiz Solver Controls ---
         const isAttemptPage = checkIsQuizAttemptPage();
-        // Smart collapse: On quiz attempt page, keep Module 1 open and Module 2 collapsed so the panel fits comfortably on screen!
-        setupPersistentAccordion('mod-ai-header', 'mod-ai-body', 'mod-ai-arrow', 'amaes_pref_mod_ai', isQuiz);
 
         const btnMasterAutoQuiz = document.getElementById('btn-master-auto-quiz');
         const btnPersonalityPassive = document.getElementById('btn-personality-passive');
@@ -4847,6 +5145,16 @@
                 smartSkipQuiz = chkSmartSkip.checked;
                 localStorage.setItem('amaes_smart_skip_quiz', smartSkipQuiz);
                 showToast(`Smart Skip: ${smartSkipQuiz ? 'Enabled' : 'Disabled'}`);
+            };
+        }
+
+        const chkKeyboardShortcuts = document.getElementById('chk-keyboard-shortcuts');
+        if (chkKeyboardShortcuts) {
+            chkKeyboardShortcuts.onchange = () => {
+                enableKeyboardShortcuts = chkKeyboardShortcuts.checked;
+                localStorage.setItem('amaes_enable_hotkeys', enableKeyboardShortcuts);
+                showToast(`Keyboard Navigation: ${enableKeyboardShortcuts ? 'Enabled' : 'Disabled'}`);
+                setLog(`Keyboard shortcuts ${enableKeyboardShortcuts ? '<b>enabled</b> (N, Space, 1-4, C, P, H)' : '<b>disabled</b>'}`, "var(--accent-blue)");
             };
         }
 
@@ -5291,6 +5599,13 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
             };
         }
 
+        const btnContributeDb = document.getElementById('btn-contribute-db');
+        if (btnContributeDb) {
+            btnContributeDb.onclick = () => {
+                showCommunityContributionModal(subCode);
+            };
+        }
+
         if (chkAutoDlJson) {
             chkAutoDlJson.onchange = (e) => {
                 localStorage.setItem('amaes_auto_dl_json', e.target.checked);
@@ -5589,6 +5904,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
         fetchAndCacheAclcLogo();
         createPanel();
         setupQuizAutomation();
+        setupQuizKeyboardShortcuts();
         showWelcomeOnboardingModal(false);
         injectDashboardCourseBadges();
         checkForScriptUpdates(false);
