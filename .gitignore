@@ -1,0 +1,17 @@
+# OS & editor artifacts
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Node / Logs
+node_modules/
+npm-debug.log
+*.log
+
+# Sensitive / Local configs
+*.local
+.env
