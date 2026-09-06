@@ -3994,6 +3994,8 @@
 
         const allDbs = getAllSavedSubjectDatabases();
         const availableCodes = Object.keys(allDbs);
+        // Sort availableCodes by question count descending
+        availableCodes.sort((a, b) => (allDbs[b]?.length || 0) - (allDbs[a]?.length || 0));
 
         let targetCode = (initialSubCode && allDbs[initialSubCode.toUpperCase()]) ?
             initialSubCode.toUpperCase() :
@@ -4039,6 +4041,7 @@
             const payloadStr = JSON.stringify(payload, null, 2);
             const verifiedCount = questions.filter(q => q.answer || q.correctAnswer).length;
             const eliminatedCount = questions.reduce((acc, q) => acc + (Array.isArray(q.wrongAnswers) ? q.wrongAnswers.length : 0), 0);
+            const hasPatToken = Boolean(localStorage.getItem('amaes_github_token'));
 
             modal.innerHTML = `
                 <div style="
@@ -4054,18 +4057,23 @@
                     flex-direction: column;
                     max-height: 90vh;
                 ">
-                    <!-- Header -->
+                    <!-- Header with Motto -->
                     <div style="
-                        padding: 14px 20px;
+                        padding: 12px 18px;
                         background: linear-gradient(135deg, #10b981, #047857);
                         color: #ffffff;
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
                     ">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            ${ICONS.upload}
-                            <span style="font-weight: 800; font-size: 15px;">Share Database to Community Hub</span>
+                        <div>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                ${ICONS.upload}
+                                <span style="font-weight: 800; font-size: 14px;">Share Database to Community Hub</span>
+                            </div>
+                            <div style="font-size: 10px; color: #d1fae5; margin-top: 2px; font-style: italic;">
+                                "Solve once, share together, never guess twice."
+                            </div>
                         </div>
                         <button id="amaes-contribute-close-btn" style="
                             background: rgba(255,255,255,0.2);
@@ -4080,64 +4088,85 @@
                     </div>
 
                     <!-- Body Content -->
-                    <div style="padding: 16px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; font-size: 12px; line-height: 1.5;">
-                        <!-- Explanation & Anti-Sabotage Notice -->
+                    <div style="padding: 14px 18px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; font-size: 12px; line-height: 1.5;">
+                        <!-- Motto Callout & Anti-Sabotage Notice -->
                         <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 10px 12px;">
-                            <div style="font-weight: 700; color: #10b981; margin-bottom: 4px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.shieldCheck} Automated Anti-Sabotage Consensus Engine
+                            <div style="font-weight: 700; color: #34d399; margin-bottom: 2px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.shieldCheck} <span>A community where each student answers what's missing</span>
                             </div>
                             <div style="color: var(--text-secondary, #cbd5e1); font-size: 11px;">
-                                Submissions are processed automatically by GitHub Actions CI. Teacher keys and consensus answers are strictly protected from accidental or malicious overwrites. Zero registration or tokens required!
+                                Submissions are processed automatically by GitHub Actions CI. Teacher keys and consensus answers are strictly protected from overwrites. Zero tokens or accounts required!
                             </div>
                         </div>
 
-                        <!-- Subject Selection -->
-                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-subtle, #0f172a); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle, #334155);">
+                        ${availableCodes.length === 0 ? `
+                            <!-- Empty Local Storage State -->
+                            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; padding: 14px; text-align: center;">
+                                <div style="font-weight: 700; color: var(--accent-pink, #f43f5e); font-size: 13px; margin-bottom: 4px;">No Saved Answers in Local Storage Yet</div>
+                                <div style="font-size: 11px; color: var(--text-secondary, #cbd5e1); line-height: 1.5;">
+                                    Complete or review a quiz in Moodle to harvest verified answers, or scrape answers from amauoed.com. Once answers are saved in your local storage, you can share them here with 1 click!
+                                </div>
+                            </div>
+                        ` : `
+                            <!-- Subject Selection -->
+                            <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; background: var(--surface-subtle, #0f172a); padding: 8px 12px; border-radius: 8px; border: 1px solid var(--border-subtle, #334155);">
+                                <div>
+                                    <span style="font-weight: 700;">Subject Database:</span>
+                                    ${availableCodes.length > 1 ? `
+                                        <select id="amaes-contribute-sub-select" style="margin-left: 6px; background: var(--surface, #1e293b); color: var(--text-primary, #f8fafc); border: 1px solid var(--border, #334155); border-radius: 4px; padding: 3px 6px; font-weight: 600;">
+                                            ${availableCodes.map(c => `<option value="${c}" ${c === targetCode ? 'selected' : ''}>${c} (${allDbs[c].length} Qs)</option>`).join('')}
+                                        </select>
+                                    ` : `<b style="color: var(--accent-blue, #38bdf8); margin-left: 4px;">${targetCode}</b>`}
+                                </div>
+                                <span style="background: ${questions.length > 0 ? '#10b981' : '#f43f5e'}; color: #fff; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 10px;">
+                                    ${verifiedCount} Verified • ${eliminatedCount} Eliminated
+                                </span>
+                            </div>
+
+                            <!-- Payload Preview -->
                             <div>
-                                <span style="font-weight: 700;">Subject Code:</span>
-                                ${availableCodes.length > 1 ? `
-                                    <select id="amaes-contribute-sub-select" style="margin-left: 6px; background: var(--surface, #1e293b); color: var(--text-primary, #f8fafc); border: 1px solid var(--border, #334155); border-radius: 4px; padding: 3px 6px; font-weight: 600;">
-                                        ${availableCodes.map(c => `<option value="${c}" ${c === targetCode ? 'selected' : ''}>${c} (${allDbs[c].length} Qs)</option>`).join('')}
-                                    </select>
-                                ` : `<b style="color: var(--accent-blue, #38bdf8); margin-left: 4px;">${targetCode}</b>`}
+                                <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-secondary, #94a3b8); font-size: 11px;">Contribution Payload Preview (${questions.length} questions):</div>
+                                <pre style="background: #020617; color: #a5f3fc; padding: 8px; border-radius: 6px; font-size: 10px; font-family: monospace; max-height: 120px; overflow: auto; border: 1px solid #1e293b; white-space: pre-wrap; word-break: break-all;">${payloadStr.length > 1000 ? payloadStr.slice(0, 1000) + '\n... (truncated for display)' : payloadStr}</pre>
                             </div>
-                            <span style="background: ${questions.length > 0 ? '#10b981' : '#f43f5e'}; color: #fff; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 10px;">
-                                ${verifiedCount} Verified • ${eliminatedCount} Eliminated
-                            </span>
-                        </div>
 
-                        <!-- Payload Preview -->
-                        <div>
-                            <div style="font-weight: 600; margin-bottom: 4px; color: var(--text-secondary, #94a3b8); font-size: 11px;">Contribution Payload Preview:</div>
-                            <pre style="background: #020617; color: #a5f3fc; padding: 8px; border-radius: 6px; font-size: 10px; font-family: monospace; max-height: 140px; overflow: auto; border: 1px solid #1e293b; white-space: pre-wrap; word-break: break-all;">${payloadStr.length > 1000 ? payloadStr.slice(0, 1000) + '\n... (truncated for display)' : payloadStr}</pre>
-                        </div>
+                            <!-- Guide Steps -->
+                            <div style="font-size: 11px; color: var(--text-secondary, #94a3b8);">
+                                <b>How it works:</b> Clicking <b>"Submit via 1-Click Issue"</b> opens a pre-filled GitHub issue in the open community repository. Click "Submit new issue" on GitHub and the automated merger bot incorporates the new questions within 60 seconds!
+                            </div>
 
-                        <!-- Guide Steps -->
-                        <div style="font-size: 11px; color: var(--text-secondary, #94a3b8);">
-                            <b>How it works:</b> Clicking <b>"Submit to GitHub Hub"</b> opens a pre-filled GitHub issue in the open community repository. Click "Submit new issue" on GitHub and the automated merger bot will parse, validate, and incorporate the new questions within 60 seconds!
-                        </div>
+                            <!-- Dynamic Feedback Area -->
+                            <div id="amaes-contribute-feedback-area" style="display: none;"></div>
+                        `}
                     </div>
 
                     <!-- Footer Actions -->
                     <div style="
-                        padding: 12px 20px;
+                        padding: 10px 18px;
                         background: var(--surface-subtle, #0f172a);
                         border-top: 1px solid var(--border, #334155);
                         display: flex;
-                        gap: 10px;
+                        gap: 8px;
                         justify-content: flex-end;
+                        flex-wrap: wrap;
+                        align-items: center;
                     ">
-                        <button id="amaes-contribute-copy-btn" class="amaes-btn amaes-btn-outline" style="padding: 6px 12px; font-size: 11px; cursor: pointer;">
+                        <button id="amaes-contribute-copy-btn" class="amaes-btn amaes-btn-outline" style="padding: 5px 10px; font-size: 10.5px; cursor: pointer;">
                             ${ICONS.copy} <span>Copy JSON</span>
                         </button>
-                        <button id="amaes-contribute-submit-btn" class="amaes-btn" style="padding: 6px 14px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" ${questions.length === 0 ? 'disabled' : ''}>
-                            ${ICONS.upload} <span>Submit to GitHub Hub</span>
+                        ${hasPatToken ? `
+                            <button id="amaes-contribute-token-push-btn" class="amaes-btn amaes-btn-blue" style="padding: 5px 12px; font-size: 10.5px; font-weight: 700; cursor: pointer; border-radius: 6px;" ${questions.length === 0 ? 'disabled' : ''}>
+                                ${ICONS.github} <span>Direct Push (via Token)</span>
+                            </button>
+                        ` : ''}
+                        <button id="amaes-contribute-submit-btn" class="amaes-btn" style="padding: 5px 14px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" ${questions.length === 0 ? 'disabled' : ''}>
+                            ${ICONS.upload} <span>Submit via 1-Click Issue</span>
                         </button>
                     </div>
                 </div>
             `;
 
-            document.getElementById('amaes-contribute-close-btn').onclick = () => modal.remove();
+            const closeBtn = document.getElementById('amaes-contribute-close-btn');
+            if (closeBtn) closeBtn.onclick = () => modal.remove();
 
             const selectEl = document.getElementById('amaes-contribute-sub-select');
             if (selectEl) {
@@ -4147,15 +4176,51 @@
                 };
             }
 
-            document.getElementById('amaes-contribute-copy-btn').onclick = () => {
-                const textToCopy = JSON.stringify(payload, null, 2);
-                if (typeof GM_setClipboard !== 'undefined') {
-                    GM_setClipboard(textToCopy);
-                } else if (navigator.clipboard) {
-                    navigator.clipboard.writeText(textToCopy);
-                }
-                showToast("Payload JSON copied to clipboard!");
-            };
+            const copyBtn = document.getElementById('amaes-contribute-copy-btn');
+            if (copyBtn) {
+                copyBtn.onclick = () => {
+                    const textToCopy = JSON.stringify(payload, null, 2);
+                    if (typeof GM_setClipboard !== 'undefined') {
+                        GM_setClipboard(textToCopy);
+                    } else if (navigator.clipboard) {
+                        navigator.clipboard.writeText(textToCopy);
+                    }
+                    showToast("Payload JSON copied to clipboard!");
+                };
+            }
+
+            const tokenPushBtn = document.getElementById('amaes-contribute-token-push-btn');
+            if (tokenPushBtn) {
+                tokenPushBtn.onclick = async () => {
+                    tokenPushBtn.disabled = true;
+                    tokenPushBtn.innerHTML = `${ICONS.rotateCcw} <span>Pushing...</span>`;
+                    try {
+                        await pushAnswersToGitHub(targetCode, questions, {
+                            quizTitle: 'Community Contribution'
+                        });
+                        showToast(`Successfully pushed ${questions.length} answers directly to GitHub!`);
+                        setLog(`Successfully pushed <b>${questions.length}</b> answers directly to GitHub for <b>${targetCode}</b>!`, "var(--accent-green)");
+                        const feedbackContainer = document.getElementById('amaes-contribute-feedback-area');
+                        if (feedbackContainer) {
+                            feedbackContainer.style.display = 'block';
+                            feedbackContainer.innerHTML = `
+                                <div style="background: rgba(16, 185, 129, 0.2); border: 1.5px solid #10b981; border-radius: 8px; padding: 10px 12px; margin-top: 6px;">
+                                    <div style="font-weight: 700; color: #34d399; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                        ${ICONS.checkCircle} <span>Successfully Pushed to Cloud Database!</span>
+                                    </div>
+                                    <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px;">
+                                        <b>${questions.length}</b> answers were committed directly to the official community repository.
+                                    </div>
+                                </div>
+                            `;
+                        }
+                    } catch (err) {
+                        alert(`Push failed: ${err.message}`);
+                        tokenPushBtn.disabled = false;
+                        tokenPushBtn.innerHTML = `${ICONS.github} <span>Direct Push (via Token)</span>`;
+                    }
+                };
+            }
 
             const submitBtn = document.getElementById('amaes-contribute-submit-btn');
             if (submitBtn) {
@@ -4167,8 +4232,30 @@
                     const issueTitle = `[Contribution] ${targetCode} (${questions.length} questions)`;
                     const issueBody = `### Community Answer Contribution\n\n**Subject**: ${targetCode}\n**Total Questions**: ${questions.length}\n**Submitted At**: ${new Date().toISOString()}\n\n\`\`\`json\n${payloadStr}\n\`\`\`\n`;
                     const ghUrl = `https://github.com/lms-study-hub/database/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(issueBody)}&labels=community-contribution`;
-                    window.open(ghUrl, '_blank');
-                    showToast("Opening GitHub issue contribution page...");
+                    
+                    const newWin = window.open(ghUrl, '_blank');
+
+                    // Provide immediate, unmissable in-modal feedback
+                    const feedbackContainer = document.getElementById('amaes-contribute-feedback-area');
+                    if (feedbackContainer) {
+                        feedbackContainer.style.display = 'block';
+                        feedbackContainer.innerHTML = `
+                            <div style="background: rgba(16, 185, 129, 0.15); border: 1.5px solid var(--accent-green, #10b981); border-radius: 8px; padding: 10px 12px; margin-top: 6px;">
+                                <div style="font-weight: 700; color: #34d399; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                    ${ICONS.checkCircle} <span>Submission Page Opened in New Tab!</span>
+                                </div>
+                                <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px; line-height: 1.45;">
+                                    <b>Final Step:</b> Go to the newly opened GitHub tab and click the green <b>"Submit new issue"</b> button. The automated bot will merge your answers into the cloud database within 60 seconds!
+                                </div>
+                                <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
+                                    <a href="${ghUrl}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-blue" style="font-size: 10px; padding: 4px 10px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
+                                        ${ICONS.external} <span>Open GitHub Tab (If Blocked by Browser)</span>
+                                    </a>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    showToast("GitHub submission page opened!");
                     setLog(`Opened GitHub community submission page for <b>${targetCode}</b>`, "var(--accent-green)");
                 };
             }
