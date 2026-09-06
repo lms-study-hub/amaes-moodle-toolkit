@@ -1501,6 +1501,108 @@ test("Paste AI (V) Shortcut: automatically pastes clipboard answer into text fie
     assert.ok(script.includes("showToast(`Pasted to Text Box: ${cleanedAnswer}`);"), "Must display feedback toast when pasting into text input");
 });
 
+// --------------------------------------------------
+// 50. Dropdown (<select>) Matching & Interactive Pick Hint
+// --------------------------------------------------
+test("Dropdown Matching Engine: matches option texts and sub-questions for matching tables and gapselects", () => {
+    function matchDropdownOption(subQText, bestAnswer, candAnswers, idx, options) {
+        let targetAns = '';
+        if (subQText && (bestAnswer.includes(':') || bestAnswer.includes('->') || bestAnswer.includes('-'))) {
+            const lines = bestAnswer.split(/[\n,;]+/).map(l => l.trim());
+            for (const line of lines) {
+                const subNorm = subQText.toLowerCase().trim();
+                const lineNorm = line.toLowerCase().trim();
+                if (lineNorm.includes(subNorm)) {
+                    const parts = line.split(/[:\->=]+/);
+                    if (parts.length >= 2) {
+                        targetAns = parts.slice(1).join(':').trim();
+                        break;
+                    }
+                }
+            }
+        }
+        if (!targetAns) {
+            targetAns = candAnswers[idx] || candAnswers[0] || bestAnswer;
+        }
+
+        const normTarget = targetAns.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return options.find(opt => {
+            if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
+            const normOpt = opt.text.toLowerCase().replace(/[^a-z0-9]/g, '');
+            return normOpt === normTarget || (normTarget.length > 2 && normOpt.includes(normTarget)) || (normOpt.length > 2 && normTarget.includes(normOpt));
+        });
+    }
+
+    const options = [
+        { value: "0", text: "Choose..." },
+        { value: "opt1", text: "Central Processing Unit" },
+        { value: "opt2", text: "Random Access Memory" },
+        { value: "opt3", text: "Read Only Memory" }
+    ];
+
+    const answerMulti = "CPU: Central Processing Unit, RAM: Random Access Memory";
+    const matchedCPU = matchDropdownOption("CPU", answerMulti, [], 0, options);
+    const matchedRAM = matchDropdownOption("RAM", answerMulti, [], 1, options);
+
+    assert.ok(matchedCPU, "CPU sub-question must match Central Processing Unit");
+    assert.strictEqual(matchedCPU.value, "opt1");
+    assert.ok(matchedRAM, "RAM sub-question must match Random Access Memory");
+    assert.strictEqual(matchedRAM.value, "opt2");
+
+    // Gapselect / Cloze array matching
+    const gapAnswers = ["Random Access Memory", "Read Only Memory"];
+    const matchedGap1 = matchDropdownOption("", "", gapAnswers, 0, options);
+    const matchedGap2 = matchDropdownOption("", "", gapAnswers, 1, options);
+    assert.strictEqual(matchedGap1.value, "opt2");
+    assert.strictEqual(matchedGap2.value, "opt3");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("const selectInputs = que.querySelectorAll('select');"), "highlightQuizAnswers must query all select elements");
+    assert.ok(script.includes("amaes-select-hint"), "Must create amaes-select-hint for dropdown questions");
+    assert.ok(script.includes("amaes-select-btn"), "Must include 1-click Pick button for dropdown questions");
+    assert.ok(script.includes("selectInput.value = matchedOption.value;"), "Auto-pick must assign matched value to select element");
+});
+
+// --------------------------------------------------
+// 51. Safe Auto-Pause on Unknown Questions
+// --------------------------------------------------
+test("Safe Auto-Pause: halts autoQuizMode, updates master button to Resume, and attaches select listener", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // Check Case B auto-pause
+    const caseBStart = script.indexOf('// Case B: UNKNOWN QUESTION DETECTED');
+    const caseBSection = script.substring(caseBStart, caseBStart + 4500);
+
+    assert.ok(caseBSection.includes("autoQuizMode = false;"), "Auto-solver Case B must halt autoQuizMode");
+    assert.ok(caseBSection.includes("localStorage.setItem('amaes_auto_quiz_mode', 'false');"), "Must persist paused state to localStorage");
+    assert.ok(caseBSection.includes("syncAutoQuizUI(true);"), "Must trigger syncAutoQuizUI with isPausedOnUnknown=true");
+    assert.ok(caseBSection.includes("AUTO-PAUSED"), "HUD must display AUTO-PAUSED status badge");
+    assert.ok(caseBSection.includes("select"), "Case B input listener must include select elements");
+
+    // Check syncAutoQuizUI button styling
+    assert.ok(script.includes("Resume Auto-Quiz"), "syncAutoQuizUI must support 'Resume Auto-Quiz' button state");
+    assert.ok(script.includes("linear-gradient(135deg, #f59e0b, #d97706)"), "Resume button must use warm amber styling");
+});
+
+// --------------------------------------------------
+// 52. AI Clipboard Paste (V) into Dropdown Elements
+// --------------------------------------------------
+test("Paste AI (V) Shortcut on Dropdowns: selects matching option in <select> dropdown from clipboard", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    const vPasteStart = script.indexOf('async function autoSelectFromAiClipboard');
+    const vPasteSection = script.substring(vPasteStart, vPasteStart + 6500);
+
+    assert.ok(vPasteSection.includes("const selectInputs = Array.from(targetQue.querySelectorAll('select'));"), "autoSelectFromAiClipboard must search for select dropdowns");
+    assert.ok(vPasteSection.includes("sel.value = matchOpt.value;"), "Must assign matched value to select dropdown");
+    assert.ok(vPasteSection.includes("sel.dispatchEvent(new Event('change', { bubbles: true }));"), "Must dispatch change event on dropdown paste");
+    assert.ok(vPasteSection.includes("showToast(`Pasted to Dropdown: Selected ${selectedCount} option(s)`);"), "Must provide clear feedback toast on dropdown paste");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

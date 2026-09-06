@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.2
+// @version      1.3.3
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.2";
+    const SCRIPT_VERSION = "v1.3.3";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2055,7 +2055,8 @@
             queContainers.forEach(que => {
                 const hasVerifiedBadge = que.querySelector('.amaes-verified-badge');
                 const hasShortAnsHint = que.querySelector('.amaes-shortans-hint');
-                if (!hasVerifiedBadge && !hasShortAnsHint) {
+                const hasSelectHint = que.querySelector('.amaes-select-hint');
+                if (!hasVerifiedBadge && !hasShortAnsHint && !hasSelectHint) {
                     unverifiedQuestions.push(que);
                 }
             });
@@ -2099,8 +2100,12 @@
                 }
 
                 // Case B: UNKNOWN QUESTION DETECTED (Auto-solver cannot answer it!)
-                // In Passive Co-Pilot mode: DO NOT AUTO-NEXT! Wait for user to pick and click Next!
+                // In Passive Co-Pilot mode: SAFE AUTO-PAUSE!
                 clearTimeout(autoNextTimer);
+                autoNextTimer = null;
+                autoQuizMode = false;
+                localStorage.setItem('amaes_auto_quiz_mode', 'false');
+                syncAutoQuizUI(true);
 
                 const firstBlockedQue = unverifiedQuestions[0];
                 const qData = extractQuestionData(firstBlockedQue);
@@ -2114,8 +2119,8 @@
                 }).catch(() => {});
 
                 setLog(
-                    `<b>Co-Pilot Paused:</b> Question #${qData ? qData.qNum : ''} not in DB (auto-copied ${willIncludeContext ? 'with Course Context' : 'for AI'}). ` +
-                    `Select your answer and click <b>Next page</b> when ready.`,
+                    `<b>Co-Pilot Auto-Paused:</b> Question #${qData ? qData.qNum : ''} not in DB (auto-copied ${willIncludeContext ? 'with Course Context' : 'for AI'}). ` +
+                    `Select your answer and click <b>Next page</b> or <b>Resume Auto-Quiz</b> when ready.`,
                     "var(--accent-amber)"
                 );
 
@@ -2148,10 +2153,10 @@
 
                     hud.innerHTML = `
                         <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 200px;">
-                            <span style="background: #f59e0b; color: #ffffff; padding: 3px 8px; border-radius: 5px; font-weight: 800; font-size: 10px; letter-spacing: 0.5px; flex-shrink: 0;">WAITING</span>
+                            <span style="background: #f59e0b; color: #ffffff; padding: 3px 8px; border-radius: 5px; font-weight: 800; font-size: 10px; letter-spacing: 0.5px; flex-shrink: 0;">AUTO-PAUSED</span>
                             <div>
                                 <div style="font-weight: 700; color: #92400e;">Question #${qData ? qData.qNum : ''} not in DB & auto-copied to clipboard.</div>
-                                <div style="color: #b45309; font-size: 11px;">Paste in AI, select answer (or press <b>V</b> to auto-select), then press <b>N</b> or click <b>Next page</b> below.</div>
+                                <div style="color: #b45309; font-size: 11px;">Paste in AI, select answer (or press <b>V</b> to auto-select), then click <b>Resume</b> or press <b>N</b> to proceed.</div>
                             </div>
                         </div>
                     `;
@@ -2161,7 +2166,7 @@
                 }
 
                 // Listen for user selecting a choice: show visual confirmation and auto-advance if enabled
-                const inputElements = firstBlockedQue.querySelectorAll('input[type="radio"], input[type="checkbox"], input[type="text"]');
+                const inputElements = firstBlockedQue.querySelectorAll('input[type="radio"], input[type="checkbox"], input[type="text"], select');
                 const onUserPickedChoice = () => {
                     firstBlockedQue.style.outline = '2px solid #10b981';
                     const hud = firstBlockedQue.querySelector('.amaes-blockage-hud');
@@ -2212,15 +2217,19 @@
     }
 
     // Unified Synchronizer for UI states (Floating HUD + Panel Button)
-    function syncAutoQuizUI() {
+    function syncAutoQuizUI(isPausedOnUnknown = false) {
         const btnMasterAutoQuiz = document.getElementById('btn-master-auto-quiz');
         if (btnMasterAutoQuiz) {
-            btnMasterAutoQuiz.style.background = autoQuizMode
-                ? 'linear-gradient(135deg, #ef4444, #dc2626)'
-                : 'linear-gradient(135deg, #10b981, #059669)';
-            btnMasterAutoQuiz.innerHTML = autoQuizMode
-                ? `${ICONS.stop} <span>Pause Auto-Quiz</span>`
-                : `${ICONS.zap} <span>Start Auto-Quiz</span>`;
+            if (autoQuizMode) {
+                btnMasterAutoQuiz.style.background = 'linear-gradient(135deg, #ef4444, #dc2626)';
+                btnMasterAutoQuiz.innerHTML = `${ICONS.stop} <span>Pause Auto-Quiz</span>`;
+            } else if (isPausedOnUnknown || (checkIsQuizAttemptPage() && document.querySelector('.amaes-blockage-hud'))) {
+                btnMasterAutoQuiz.style.background = 'linear-gradient(135deg, #f59e0b, #d97706)';
+                btnMasterAutoQuiz.innerHTML = `${ICONS.zap} <span>Resume Auto-Quiz</span>`;
+            } else {
+                btnMasterAutoQuiz.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                btnMasterAutoQuiz.innerHTML = `${ICONS.zap} <span>Start Auto-Quiz</span>`;
+            }
         }
 
         const existingHud = document.getElementById('amaes-quiz-hud');
@@ -2410,6 +2419,69 @@
                     }
                     return;
                 }
+
+                // Check for Dropdown / Select elements (matching questions & gapselect)
+                const selectInputs = Array.from(targetQue.querySelectorAll('select'));
+                if (selectInputs.length > 0) {
+                    const cleanedAnswer = cleanText
+                        .replace(/^Answer:\s*/i, '')
+                        .replace(/^The correct answer is:\s*/i, '')
+                        .replace(/^["']|["']$/g, '')
+                        .trim();
+                    let selectedCount = 0;
+                    selectInputs.forEach((sel, sIdx) => {
+                        const row = sel.closest('tr');
+                        const rowTextElem = row ? row.querySelector('td.text') : null;
+                        const subQText = rowTextElem ? rowTextElem.innerText.trim() : '';
+
+                        // Look for sub-question matching in lines of clipboard text
+                        let targetAns = '';
+                        if (subQText) {
+                            const lines = cleanedAnswer.split(/[\n,;]+/).map(l => l.trim());
+                            for (const line of lines) {
+                                const subNorm = normalizeText(subQText);
+                                const lineNorm = normalizeText(line);
+                                if (lineNorm.includes(subNorm)) {
+                                    const parts = line.split(/[:\->=]+/);
+                                    if (parts.length >= 2) {
+                                        targetAns = parts.slice(1).join(':').trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        const options = Array.from(sel.options);
+                        const matchOpt = options.find(opt => {
+                            if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
+                            const optNorm = normalizeText(opt.text);
+                            if (targetAns) {
+                                const tNorm = normalizeText(targetAns);
+                                if (optNorm === tNorm || optNorm.includes(tNorm) || tNorm.includes(optNorm)) return true;
+                            }
+                            const cleanNorm = normalizeText(cleanedAnswer);
+                            return optNorm === cleanNorm || (cleanNorm.length > 2 && optNorm.includes(cleanNorm)) || (optNorm.length > 2 && cleanNorm.includes(optNorm));
+                        });
+
+                        if (matchOpt) {
+                            sel.value = matchOpt.value;
+                            sel.dispatchEvent(new Event('input', { bubbles: true }));
+                            sel.dispatchEvent(new Event('change', { bubbles: true }));
+                            sel.dispatchEvent(new Event('blur', { bubbles: true }));
+                            selectedCount++;
+                        }
+                    });
+
+                    if (selectedCount > 0) {
+                        showToast(`Pasted to Dropdown: Selected ${selectedCount} option(s)`);
+                        setLog(`AI Paste: Selected <b>${selectedCount}</b> dropdown option(s) from clipboard`, "var(--accent-green)");
+                        if (autoNextQuiz) {
+                            scheduleAutoNextAfterAnswer(1000);
+                        }
+                        return;
+                    }
+                }
+
                 showToast("No answer inputs found for this question");
                 return;
             }
@@ -2651,7 +2723,7 @@
 
             // Clone qtext and remove input, select, textarea, and badges so inline blanks match AMAUOED entries cleanly
             const qClone = qtextElem.cloneNode(true);
-            qClone.querySelectorAll('input, select, textarea, .amaes-shortans-hint, .amaes-verified-badge, .amaes-probability-hint').forEach(el => el.remove());
+            qClone.querySelectorAll('input, select, textarea, .amaes-shortans-hint, .amaes-select-hint, .amaes-verified-badge, .amaes-probability-hint').forEach(el => el.remove());
             const moodleQRaw = qClone.innerText.trim();
             const moodleQNorm = normalizeText(moodleQRaw);
 
@@ -2694,7 +2766,12 @@
                     lbl.style.opacity = '';
                 }
             });
-            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint').forEach(b => b.remove());
+            que.querySelectorAll('select').forEach(sel => {
+                sel.style.outline = '';
+                sel.style.backgroundColor = '';
+                sel.style.borderRadius = '';
+            });
+            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint').forEach(b => b.remove());
 
             // Compile all eliminated wrong choices known for this question
             const allWrongList = [];
@@ -3078,6 +3155,151 @@
                     });
 
                     foundMatchForQuestion = true;
+                }
+            }
+
+            // Handle Dropdown / Select elements (matching questions table, cloze / gapselect dropdowns)
+            if (!foundMatchForQuestion) {
+                const selectInputs = que.querySelectorAll('select');
+                if (selectInputs.length > 0 && candidates.length > 0) {
+                    const bestCand = candidates[0];
+                    const bestAnswer = bestCand.ansRaw || bestCand.answer || '';
+                    const isAmauoed = Boolean((bestCand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(bestCand.sources) && bestCand.sources.some(s => s.toLowerCase().includes('amauoed'))));
+                    const sourceColor = isAmauoed ? '#0284c7' : '#10b981';
+                    const sourceBg = isAmauoed ? 'rgba(2, 132, 199, 0.1)' : 'rgba(16, 185, 129, 0.1)';
+                    const sourceTitle = isAmauoed ? 'Suggested (amauoed.com):' : 'Suggested (Verified DB):';
+
+                    const candAnswers = (bestCand.answers && bestCand.answers.length > 0)
+                        ? bestCand.answers
+                        : (bestAnswer.includes(',') && selectInputs.length > 1 ? bestAnswer.split(',').map(s => s.trim()) : [bestAnswer]);
+
+                    let matchedAnySelect = false;
+
+                    selectInputs.forEach((selectInput, idx) => {
+                        // Check if dropdown is inside a matching table row with sub-question text
+                        const row = selectInput.closest('tr');
+                        const rowTextElem = row ? row.querySelector('td.text') : null;
+                        const subQText = rowTextElem ? rowTextElem.innerText.trim() : '';
+
+                        // Determine target answer for this dropdown:
+                        // 1. Try matching sub-question text in bestAnswer (e.g. "Term: Definition" or "Term -> Definition")
+                        let targetAns = '';
+                        if (subQText && (bestAnswer.includes(':') || bestAnswer.includes('->') || bestAnswer.includes('-'))) {
+                            const lines = bestAnswer.split(/[\n,;]+/).map(l => l.trim());
+                            for (const line of lines) {
+                                const subNorm = normalizeText(subQText);
+                                const lineNorm = normalizeText(line);
+                                if (lineNorm.includes(subNorm)) {
+                                    const parts = line.split(/[:\->=]+/);
+                                    if (parts.length >= 2) {
+                                        targetAns = parts.slice(1).join(':').trim();
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        // 2. Fallback to candidate answers array index
+                        if (!targetAns) {
+                            targetAns = candAnswers[idx] || candAnswers[0] || bestAnswer;
+                        }
+
+                        // Look for a matching option in the select
+                        const options = Array.from(selectInput.options);
+                        const normTarget = normalizeChoice(targetAns);
+
+                        let matchedOption = options.find(opt => {
+                            if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
+                            const normOpt = normalizeChoice(opt.text);
+                            return normOpt === normTarget || (normTarget.length > 2 && normOpt.includes(normTarget)) || (normOpt.length > 2 && targetAns.length > 2 && normTarget.includes(normOpt));
+                        });
+
+                        // Fallback: if no direct match, try matching any candidate answer
+                        if (!matchedOption && candAnswers.length > 0) {
+                            matchedOption = options.find(opt => {
+                                if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
+                                const normOpt = normalizeChoice(opt.text);
+                                return candAnswers.some(ca => {
+                                    const nca = normalizeChoice(ca);
+                                    return normOpt === nca || (nca.length > 2 && normOpt.includes(nca)) || (normOpt.length > 2 && nca.includes(normOpt));
+                                });
+                            });
+                        }
+
+                        if (matchedOption) {
+                            matchedAnySelect = true;
+                            selectInput.style.outline = `2px solid ${sourceColor}`;
+                            selectInput.style.backgroundColor = sourceBg;
+                            selectInput.style.borderRadius = '4px';
+
+                            let hint = que.querySelector(`.amaes-select-hint[data-select-idx="${idx}"]`);
+                            if (!hint) {
+                                hint = document.createElement('div');
+                                hint.className = 'amaes-select-hint';
+                                hint.setAttribute('data-select-idx', String(idx));
+                                hint.innerHTML = `
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                        <span><span style="color:${sourceColor}; font-weight:700;">${sourceTitle}</span> <b>${matchedOption.text}</b></span>
+                                        <button type="button" class="amaes-select-btn" style="
+                                            background: ${sourceColor};
+                                            color: #ffffff;
+                                            border: none;
+                                            border-radius: 4px;
+                                            padding: 2px 7px;
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 3px;
+                                            white-space: nowrap;
+                                            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                                        ">${ICONS.zap} Pick</button>
+                                    </div>
+                                `;
+                                hint.style.cssText = `font-size: 11px; margin-top: 5px; margin-bottom: 3px; padding: 5px 9px; background: ${sourceBg}; border-left: 3px solid ${sourceColor}; border-radius: 4px; cursor: pointer; transition: background 0.15s;`;
+                                hint.title = `Click to pick "${matchedOption.text}"`;
+
+                                const pickFn = (e) => {
+                                    if (e) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                    }
+                                    selectInput.value = matchedOption.value;
+                                    selectInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                    selectInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                    selectInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                                    showToast(`Selected: ${matchedOption.text}`);
+                                    hint.style.background = 'rgba(16, 185, 129, 0.2)';
+                                    const btn = hint.querySelector('.amaes-select-btn');
+                                    if (btn) btn.innerText = '✓ Picked';
+                                };
+
+                                hint.onclick = pickFn;
+                                const pickBtn = hint.querySelector('.amaes-select-btn');
+                                if (pickBtn) pickBtn.onclick = pickFn;
+
+                                if (selectInput.parentElement && selectInput.parentElement !== que) {
+                                    selectInput.parentElement.appendChild(hint);
+                                } else {
+                                    selectInput.insertAdjacentElement('afterend', hint);
+                                }
+                            }
+
+                            // Auto-select when autoPickQuiz is enabled or auto-quiz is running
+                            const canAutoPick = autoPickQuiz || (autoSelect && (autoQuizMode || isManualSelect));
+                            if (canAutoPick && (!selectInput.value || selectInput.value === '0')) {
+                                selectInput.value = matchedOption.value;
+                                selectInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                selectInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                selectInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                            }
+                        }
+                    });
+
+                    if (matchedAnySelect) {
+                        foundMatchForQuestion = true;
+                    }
                 }
             }
 
@@ -3741,6 +3963,21 @@
                     }
                 }
             });
+        }
+
+        // 5b. Inline Gapselect / Cloze Select dropdowns check
+        if (choices.length === 0 && matchPairs.length === 0) {
+            const gapSelects = que.querySelectorAll('.qtext select, .formulation select');
+            if (gapSelects.length > 0) {
+                gapSelects.forEach((sel, gIdx) => {
+                    const options = Array.from(sel.querySelectorAll('option'))
+                        .map(o => o.innerText.trim())
+                        .filter(o => o && !o.toLowerCase().includes('choose'));
+                    if (options.length > 0) {
+                        matchPairs.push({ subQ: `Blank [${gIdx + 1}]`, options });
+                    }
+                });
+            }
         }
 
         // 6. Multi-Choice check (checkboxes or "Select one or more")
