@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.4.3
+// @version      1.4.4
 // @description  Universal Study Toolkit for AMA Online Education (AMAOEd / AMAES) Moodle portals. Features Auto-Harvesting with Dynamic Fallback, Multi-Course Grades Harvester, AI Prompt Formatter, Cross-Attempt Database, Cloud Sync, and Auto-Quiz Solver.
 // @author       Ry
 // @match        https://*.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.4.3";
+    const SCRIPT_VERSION = "v1.4.4";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -235,55 +235,93 @@
     }
 
     function renderUpdateNotice(latestVersion) {
-        let container = document.getElementById('amaes-update-container');
-        if (!container) {
-            setTimeout(() => renderUpdateNotice(latestVersion), 400);
-            return;
+        // 1. Persistent Header "Update Now" Button
+        const titleGroup = document.getElementById('amaes-title-group');
+        if (titleGroup) {
+            let headerUpdateBtn = document.getElementById('amaes-header-update-btn');
+            if (!headerUpdateBtn) {
+                headerUpdateBtn = document.createElement('a');
+                headerUpdateBtn.id = 'amaes-header-update-btn';
+                headerUpdateBtn.href = SCRIPT_RAW_URL;
+                headerUpdateBtn.target = '_blank';
+                headerUpdateBtn.rel = 'noopener noreferrer';
+                headerUpdateBtn.style.cssText = `
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 3px;
+                    background: linear-gradient(135deg, #10b981, #059669);
+                    color: #ffffff !important;
+                    padding: 1px 7px;
+                    border-radius: 4px;
+                    font-size: 9px;
+                    font-weight: 800;
+                    text-decoration: none;
+                    box-shadow: 0 1px 3px rgba(16, 185, 129, 0.35);
+                    cursor: pointer;
+                    flex-shrink: 0;
+                    margin-left: 4px;
+                    animation: amaesPulse 2.5s infinite;
+                `;
+                titleGroup.appendChild(headerUpdateBtn);
+            }
+            headerUpdateBtn.innerHTML = `${ICONS.download} <span>Update Now (v${latestVersion})</span>`;
+            headerUpdateBtn.title = `New version v${latestVersion} is available! Click to update now`;
         }
 
+        // 2. Version Pill Update Indicator & Direct Link
         const versionPill = document.getElementById('amaes-version-pill');
         if (versionPill) {
-            versionPill.innerHTML = `${SCRIPT_VERSION} <span style="background: #10b981; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 8px; margin-left: 2px; font-weight: 800;">UPDATE</span>`;
+            versionPill.innerHTML = `${SCRIPT_VERSION} <span style="background: #10b981; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 8px; margin-left: 2px; font-weight: 800;">v${latestVersion}</span>`;
             versionPill.title = `Update available: v${latestVersion}! Click to install`;
             versionPill.style.borderColor = '#10b981';
             versionPill.style.color = '#10b981';
+            versionPill.onclick = () => window.open(SCRIPT_RAW_URL, '_blank');
         }
 
-        container.innerHTML = `
-            <div id="amaes-update-banner" style="
-                display: flex;
-                align-items: center;
-                justify-content: space-between;
-                gap: 8px;
-                padding: 7px 10px;
-                background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(37, 99, 235, 0.25));
-                border: 1px solid rgba(59, 130, 246, 0.5);
-                border-radius: 6px;
-                margin-bottom: 6px;
-                font-size: 11px;
-                animation: amaesFadeIn 0.3s ease;
-            ">
-                <div style="display: flex; align-items: center; gap: 6px; min-width: 0; color: #93c5fd;">
-                    ${ICONS.download}
-                    <span style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                        New v${latestVersion} released!
-                    </span>
+        // 3. Persistent Banner in Panel Body
+        const container = document.getElementById('amaes-update-container');
+        if (container) {
+            container.innerHTML = `
+                <div id="amaes-update-banner" style="
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    gap: 8px;
+                    padding: 8px 12px;
+                    background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(5, 150, 105, 0.22));
+                    border: 1px solid rgba(16, 185, 129, 0.5);
+                    border-radius: 6px;
+                    margin-bottom: 6px;
+                    font-size: 11px;
+                    animation: amaesFadeIn 0.3s ease;
+                ">
+                    <div style="display: flex; align-items: center; gap: 6px; min-width: 0; color: #a7f3d0;">
+                        ${ICONS.download}
+                        <span style="font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            Toolkit Update: v${latestVersion} Available!
+                        </span>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                        <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-primary" style="padding: 3px 10px; font-size: 10.5px; font-weight: 800; text-decoration: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff !important; box-shadow: 0 1px 3px rgba(0,0,0,0.2);">
+                            ${ICONS.download} Update Now
+                        </a>
+                    </div>
                 </div>
-                <div style="display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                    <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-primary" style="padding: 2px 8px; font-size: 10px; font-weight: 700; text-decoration: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
-                        Update Now
-                    </a>
-                    <button id="btn-dismiss-update" style="background: none; border: none; color: #94a3b8; font-size: 15px; cursor: pointer; padding: 2px; line-height: 1;" title="Dismiss">&times;</button>
-                </div>
-            </div>
-        `;
+            `;
+        } else {
+            setTimeout(() => renderUpdateNotice(latestVersion), 400);
+        }
 
-        const dismissBtn = document.getElementById('btn-dismiss-update');
-        if (dismissBtn) {
-            dismissBtn.onclick = () => {
-                sessionStorage.setItem('amaes_update_dismissed', latestVersion);
-                container.innerHTML = '';
-            };
+        // 4. Welcome Guide Modal Update Button
+        const welcomeUpdateNow = document.getElementById('btn-welcome-update-now');
+        if (welcomeUpdateNow) {
+            welcomeUpdateNow.innerHTML = `${ICONS.download} <span>Update Now (v${latestVersion})</span>`;
+        }
+
+        // 5. Quiz Floating HUD Update Button
+        const hudUpdateIndicator = document.getElementById('hud-update-indicator');
+        if (hudUpdateIndicator) {
+            hudUpdateIndicator.style.display = 'inline-flex';
         }
     }
 
@@ -311,15 +349,15 @@
             }
         }
 
-        // 2. Cache throttling: avoid repeated network requests on every page load or repeat clicks
-        const throttleWindow = manual ? 30 * 1000 : 2 * 60 * 60 * 1000;
+        // 2. Cache throttling: 5 minutes for background auto-check, 10 seconds for manual
+        const throttleWindow = manual ? 10 * 1000 : 5 * 60 * 1000;
         if (!manual && (now - lastCheck < throttleWindow)) {
             if (callback) callback({ status: hasKnownUpdate ? 'update_available' : 'cached', version: cachedLatest || SCRIPT_VERSION });
             return;
         }
 
         if (manual) {
-            setLog("Checking GitHub for toolkit updates...", "var(--accent-blue)", "Querying releases...");
+            setLog("Auto-checking GitHub for toolkit updates...", "var(--accent-blue)", "Querying releases...");
         }
 
         const req = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest :
@@ -2372,6 +2410,23 @@
             <button id="btn-hud-expand-panel" class="amaes-inline-btn" style="padding: 3px 8px; font-size: 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; cursor: pointer;" title="Toggle Full Toolkit Panel">
                 ${ICONS.minimize} <span>Panel</span>
             </button>
+
+            <!-- Persistent Update Indicator -->
+            <a id="hud-update-indicator" href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" style="
+                display: ${(localStorage.getItem('amaes_latest_version_seen') && isNewerVersion(localStorage.getItem('amaes_latest_version_seen'), SCRIPT_VERSION)) ? 'inline-flex' : 'none'};
+                align-items: center;
+                gap: 4px;
+                background: linear-gradient(135deg, #10b981, #059669);
+                color: #ffffff !important;
+                padding: 2px 9px;
+                border-radius: 12px;
+                font-size: 10px;
+                font-weight: 800;
+                text-decoration: none;
+                animation: amaesPulse 2s infinite;
+            " title="Toolkit Update Available! Click to update now">
+                ${ICONS.download} <span>Update Now</span>
+            </a>
         `;
 
         document.body.appendChild(hud);
@@ -6973,9 +7028,9 @@
                     gap: 8px;
                 ">
                     <div style="display: flex; align-items: center; gap: 6px;">
-                        <button id="btn-welcome-check-update" class="amaes-btn amaes-btn-outline" style="font-size: 10.5px; padding: 5px 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                            ${ICONS.rotateCcw} <span id="welcome-update-label">Check Updates</span>
-                        </button>
+                        <a id="btn-welcome-update-now" href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-primary" style="font-size: 10.5px; padding: 5px 10px; font-weight: 700; text-decoration: none; display: inline-flex; align-items: center; gap: 4px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff !important;">
+                            ${ICONS.download} <span>Update Now</span>
+                        </a>
                         <a href="${GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer" style="
                             color: #93c5fd;
                             text-decoration: none;
@@ -7049,22 +7104,6 @@
             };
         }
 
-        const btnWelcomeUpdate = document.getElementById('btn-welcome-check-update');
-        const welcomeUpdateLabel = document.getElementById('welcome-update-label');
-        if (btnWelcomeUpdate) {
-            btnWelcomeUpdate.onclick = () => {
-                if (welcomeUpdateLabel) welcomeUpdateLabel.textContent = "Checking...";
-                checkForScriptUpdates(true, (res) => {
-                    if (res && res.status === 'update_available') {
-                        if (welcomeUpdateLabel) welcomeUpdateLabel.textContent = `v${res.version} Available!`;
-                    } else if (res && res.status === 'up_to_date') {
-                        if (welcomeUpdateLabel) welcomeUpdateLabel.textContent = "Up to date!";
-                    } else {
-                        if (welcomeUpdateLabel) welcomeUpdateLabel.textContent = "Check Updates";
-                    }
-                });
-            };
-        }
 
         const btnCopyInstallGuide = document.getElementById('btn-copy-install-guide');
         if (btnCopyInstallGuide) {
@@ -7184,7 +7223,12 @@
                     <div id="amaes-title-group" style="display: flex; align-items: center; gap: 4px;">
                         <span id="amaes-title">AMAES</span>
                         <img class="amaes-aclc-logo" src="${getAclcLogoSrc()}" alt="ACLC" title="ACLC College" style="height: 18px; width: auto; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.35)); margin: 0 2px;" />
-                        <span id="amaes-version-pill" title="${SCRIPT_VERSION} • Click to check for updates" style="font-size: 9px; font-weight: 700; color: var(--accent-blue, #3b82f6); background: rgba(59,130,246,0.12); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(59,130,246,0.25); cursor: pointer; user-select: none;">${SCRIPT_VERSION}</span>
+                        <span id="amaes-version-pill" title="${SCRIPT_VERSION}" style="font-size: 9px; font-weight: 700; color: var(--accent-blue, #3b82f6); background: rgba(59,130,246,0.12); padding: 1px 5px; border-radius: 4px; border: 1px solid rgba(59,130,246,0.25); cursor: pointer; user-select: none;">${SCRIPT_VERSION}</span>
+                        ${(localStorage.getItem('amaes_latest_version_seen') && isNewerVersion(localStorage.getItem('amaes_latest_version_seen'), SCRIPT_VERSION)) ? `
+                            <a id="amaes-header-update-btn" href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 3px; background: linear-gradient(135deg, #10b981, #059669); color: #ffffff !important; padding: 1px 7px; border-radius: 4px; font-size: 9px; font-weight: 800; text-decoration: none; box-shadow: 0 1px 3px rgba(16, 185, 129, 0.35); cursor: pointer; flex-shrink: 0; margin-left: 3px; animation: amaesPulse 2.5s infinite;" title="New version v${localStorage.getItem('amaes_latest_version_seen')} available! Click to update now">
+                                ${ICONS.download} <span>Update Now</span>
+                            </a>
+                        ` : ''}
                     </div>
                 </div>
                 
@@ -9240,12 +9284,17 @@
             showToast(`Theme switched to ${nextTheme} mode`);
         };
 
-        // Header Version Pill Click -> Check for Updates
+        // Header Version Pill Click -> Direct Update if available, else quick check
         const versionPill = document.getElementById('amaes-version-pill');
         if (versionPill) {
             versionPill.onclick = () => {
-                showToast("Checking GitHub for updates...");
-                checkForScriptUpdates(true);
+                const cachedLatest = localStorage.getItem('amaes_latest_version_seen');
+                if (cachedLatest && isNewerVersion(cachedLatest, SCRIPT_VERSION)) {
+                    window.open(SCRIPT_RAW_URL, '_blank');
+                } else {
+                    showToast("Checking GitHub for updates...");
+                    checkForScriptUpdates(true);
+                }
             };
         }
 

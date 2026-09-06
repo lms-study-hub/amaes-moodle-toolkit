@@ -2325,6 +2325,32 @@ test("Auto-Quiz Autonomous Progression: auto-advances on Auto-Quiz answers; manu
     assert.ok(script.includes("Answered by Auto-Quiz: automatically advance to next page!"), "Code must document Auto-Quiz autonomous progression");
 });
 
+// --------------------------------------------------
+// 66. Persistent Update Now Button & Auto-Check
+// --------------------------------------------------
+test("Persistent Update Now Button: auto-checks updates, displays persistent Update Now in header/banner, removes manual check button", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // 1. Verify removal of old manual check updates button in Welcome modal
+    assert.ok(!script.includes("btn-welcome-check-update"), "btn-welcome-check-update must be removed from the userscript");
+    assert.ok(!script.includes("welcome-update-label"), "welcome-update-label must be removed from the userscript");
+
+    // 2. Verify persistent Update Now buttons
+    assert.ok(script.includes("amaes-header-update-btn"), "Header must include persistent amaes-header-update-btn");
+    assert.ok(script.includes("btn-welcome-update-now"), "Welcome modal must include persistent btn-welcome-update-now");
+    assert.ok(script.includes("hud-update-indicator"), "Quiz floating HUD must include hud-update-indicator");
+
+    // 3. Verify no dismiss button that deletes the update banner
+    assert.ok(!script.includes("btn-dismiss-update"), "Update banner must not have a dismiss button removing the notification");
+
+    // 4. Verify background auto-check throttle window is 5 minutes (not 2 hours)
+    assert.ok(script.includes("5 * 60 * 1000"), "Background auto-check throttle window must be 5 minutes");
+
+    // 5. Verify direct installer opening on known updates
+    assert.ok(script.includes("window.open(SCRIPT_RAW_URL, '_blank')"), "Must open raw userscript installer on update click");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
