@@ -90,4 +90,4 @@ Once Violentmonkey is installed and Developer Mode is enabled:
 
 - **Automatic**: Violentmonkey automatically checks GitHub for updates once a day.
 - **In-App Notification**: When a new version is released, the toolkit panel displays a **"New vX.Y.Z released!"** banner with a 1-click update button.
-- **Manual**: Click the version pill (e.g. `v1.0.3`) in the panel header anytime to check immediately!
+- **Manual**: Click the version pill (e.g. `v1.0.7`) in the panel header anytime to check immediately!

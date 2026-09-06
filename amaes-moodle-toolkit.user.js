@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.6
+// @version      1.0.7
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.6";
+    const SCRIPT_VERSION = "v1.0.7";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -380,6 +380,8 @@
     let aiPromptHint = localStorage.getItem('amaes_ai_prompt_hint') !== 'false'; // default true for clean a/b/c/d answers
     let showInQuestionAiBtns = localStorage.getItem('amaes_show_in_question_ai_btns') !== 'false'; // default true
     let enableKeyboardShortcuts = localStorage.getItem('amaes_enable_hotkeys') !== 'false'; // default true: N, Space, 1-4, C, P, H
+    let autoCommunityShare = localStorage.getItem('amaes_auto_community_share') !== 'false'; // default true: auto-prompt share on review
+    let autoMinimizeQuiz = localStorage.getItem('amaes_auto_min_quiz') !== 'false'; // default true: smart pill in quiz
 
     // ==========================================
     // Authentic ACLC Transparent PNG Logo
@@ -495,15 +497,19 @@
         showInQuestionAiBtns = true;
         aiPromptHint = true;
         enableKeyboardShortcuts = true;
+        autoCommunityShare = true;
+        autoMinimizeQuiz = true;
 
         const updateCheck = (id, val) => {
             const el = document.getElementById(id);
             if (el) el.checked = val;
         };
         updateCheck('chk-auto-cloud-sync', true);
+        updateCheck('chk-auto-community-share', true);
         updateCheck('chk-auto-hl-quiz', true);
         updateCheck('chk-auto-copy-ai', true);
         updateCheck('chk-smart-skip', true);
+        updateCheck('chk-auto-min-quiz', true);
         updateCheck('chk-in-question-ai', true);
         updateCheck('chk-show-in-q-btns', true);
         updateCheck('chk-ai-hint', true);
@@ -519,6 +525,7 @@
         updateCheck('welcome-chk-hl', true);
         updateCheck('welcome-chk-copy', true);
         updateCheck('welcome-chk-skip', true);
+        updateCheck('welcome-chk-hotkeys', true);
         updateCheck('welcome-chk-next', false);
         updateCheck('welcome-chk-submit', false);
         updateCheck('welcome-chk-dl', false);
@@ -593,17 +600,22 @@
                 transition: transform 0.15s ease, background 0.15s ease;
                 user-select: none;
                 z-index: 10;
-                ${count > 0 
-                    ? 'background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #10b981;' 
+                ${count >= 100 
+                    ? 'background: rgba(16, 185, 129, 0.2); border: 1.5px solid #10b981; color: #10b981;' 
+                    : count > 0 
+                    ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399;' 
                     : 'background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.25); color: #94a3b8;'}
             `;
 
-            if (count > 0) {
-                badge.innerHTML = `${ICONS.database} <span><b>${count}</b> DB Answers</span>`;
-                badge.title = `Click to view ${subCode} answers in Toolkit`;
+            if (count >= 100) {
+                badge.innerHTML = `${ICONS.checkBadge} <span><b>100% Exam Ready</b> • ${count} Qs</span>`;
+                badge.title = `${subCode}: Complete question bank stored (${count} verified questions)`;
+            } else if (count > 0) {
+                badge.innerHTML = `${ICONS.database} <span><b>Verified DB</b> • ${count} Qs</span>`;
+                badge.title = `${subCode}: ${count} questions verified in local DB. Click to view.`;
             } else {
-                badge.innerHTML = `${ICONS.cloudDownload} <span>${subCode} • Check Cloud DB</span>`;
-                badge.title = `Click to check Cloud Database for ${subCode}`;
+                badge.innerHTML = `${ICONS.cloudDownload} <span>${subCode} • Check Cloud Hub</span>`;
+                badge.title = `Click to auto-pull community answers for ${subCode}`;
             }
 
             badge.onmouseenter = () => { badge.style.transform = 'translateY(-1px)'; };
@@ -627,6 +639,58 @@
             const targetContainer = card.querySelector('.course-info-container, .card-body, [data-region="course-content"]') || card;
             targetContainer.appendChild(badge);
         });
+    }
+
+    // Injects 1-Click "Mark Lectures as Done" directly into course homepage header
+    function injectCoursePageHeaderActions() {
+        if (!isUserLoggedIn() || !checkIsCoursePage()) return;
+        if (document.getElementById('amaes-course-header-actions')) return;
+
+        const headerTarget = document.querySelector('.page-header-headings, #page-header, .course-content, #region-main');
+        if (!headerTarget) return;
+
+        const container = document.createElement('div');
+        container.id = 'amaes-course-header-actions';
+        container.style.cssText = `
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 8px 0;
+            padding: 6px 10px;
+            background: var(--surface, #1e293b);
+            border: 1px solid var(--border, #334155);
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            z-index: 100;
+        `;
+
+        container.innerHTML = `
+            <button id="btn-quick-mark-lectures" class="amaes-btn amaes-btn-blue" style="padding: 4px 10px; font-size: 11px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Automatically mark all reading materials and video lectures as completed">
+                ${ICONS.check} <span>Mark Lectures Done</span>
+            </button>
+            <button id="btn-quick-undo-lectures" class="amaes-btn amaes-btn-outline" style="padding: 4px 8px; font-size: 10.5px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Undo lecture completion status">
+                ${ICONS.undo} <span>Undo</span>
+            </button>
+        `;
+
+        headerTarget.appendChild(container);
+
+        const btnMark = container.querySelector('#btn-quick-mark-lectures');
+        if (btnMark) {
+            btnMark.onclick = (e) => {
+                e.preventDefault();
+                runBatch('mark_done', 'lecture');
+            };
+        }
+
+        const btnUndo = container.querySelector('#btn-quick-undo-lectures');
+        if (btnUndo) {
+            btnUndo.onclick = (e) => {
+                e.preventDefault();
+                runBatch('undo', 'lecture');
+            };
+        }
     }
 
     // ==========================================
@@ -1712,6 +1776,11 @@
             <button id="btn-hud-toggle-quiz" class="amaes-inline-btn" style="padding: 3px 10px; font-size: 10px; background: ${autoQuizMode ? 'rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444' : 'rgba(16,185,129,0.25); color:#10b981; border:1px solid #10b981'}; border-radius: 12px; cursor: pointer; font-weight: 600;">
                 ${autoQuizMode ? 'Pause' : 'Start'}
             </button>
+
+            <!-- Toggle Toolkit Panel -->
+            <button id="btn-hud-expand-panel" class="amaes-inline-btn" style="padding: 3px 8px; font-size: 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; cursor: pointer;" title="Toggle Full Toolkit Panel">
+                ${ICONS.minimize} <span>Panel</span>
+            </button>
         `;
 
         document.body.appendChild(hud);
@@ -1720,6 +1789,22 @@
         if (_el__btn_hud_toggle_quiz_) _el__btn_hud_toggle_quiz_.onclick = () => {;
             toggleAutoQuizMode();
         };
+
+        const hudPanelBtn = document.getElementById('btn-hud-expand-panel');
+        if (hudPanelBtn) {
+            hudPanelBtn.onclick = () => {
+                const bodyEl = document.getElementById('amaes-panel-body');
+                const minBtn = document.getElementById('amaes-min-btn');
+                if (!bodyEl) return;
+                const isHidden = bodyEl.style.display === 'none';
+                bodyEl.style.display = isHidden ? 'block' : 'none';
+                if (minBtn) minBtn.innerHTML = isHidden ? ICONS.minimize : `
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <rect x="3" y="3" width="18" height="18" rx="2"/>
+                    </svg>
+                `;
+            };
+        }
     }
 
     // Auto-select choice based on AI answer from clipboard (Shortcut: V or Button)
@@ -3097,6 +3182,23 @@
 
         if (checkIsQuizAttemptPage()) {
             injectQuizFloatingHUD();
+
+            // Auto-minimize toolkit panel to floating smart pill if enabled
+            if (autoMinimizeQuiz) {
+                const bodyEl = document.getElementById('amaes-panel-body');
+                const minBtn = document.getElementById('amaes-min-btn');
+                if (bodyEl && bodyEl.style.display !== 'none') {
+                    bodyEl.style.display = 'none';
+                    if (minBtn) {
+                        minBtn.innerHTML = `
+                            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            </svg>
+                        `;
+                    }
+                }
+            }
+
             // On attempt page load: ONLY run solver if Auto-Quiz is active; otherwise just highlight visually
             clearTimeout(pageLoadSolverTimer);
             pageLoadSolverTimer = setTimeout(() => {
@@ -3753,8 +3855,9 @@
 
         setLog(`Review Harvested: <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices saved for <b>${harvested.subjectCode}</b>!`, "var(--accent-green)");
 
-        const autoDlEnabled = localStorage.getItem('amaes_auto_dl_json') !== 'false';
+        const autoDlEnabled = localStorage.getItem('amaes_auto_dl_json') === 'true';
         const autoPushEnabled = localStorage.getItem('amaes_auto_push_github') === 'true';
+        const autoShareEnabled = localStorage.getItem('amaes_auto_community_share') !== 'false';
         const hasGithubToken = Boolean(localStorage.getItem('amaes_github_token'));
 
         // Prevent repeated auto-actions on refresh using sessionStorage attempt keys
@@ -3762,8 +3865,9 @@
         const attemptId = urlParams.get('attempt') || harvested.quizTitle;
         const dlKey = `amaes_autodl_${attemptId}`;
         const pushKey = `amaes_autopush_${attemptId}`;
+        const shareKey = `amaes_autoshare_${attemptId}`;
 
-        // 1. Auto-Download JSON file on review screen load
+        // 1. Auto-Download JSON file on review screen load (opt-in)
         if (autoDlEnabled && !sessionStorage.getItem(dlKey)) {
             sessionStorage.setItem(dlKey, '1');
             const json = exportAnswersAsJSON(harvested);
@@ -3791,6 +3895,15 @@
                     console.error('Auto-push to GitHub failed:', e);
                 }
             }, 1000);
+        }
+
+        // 3. Auto-Share to Community Hub (Default: ON)
+        if (autoShareEnabled && harvested.harvestedCount > 0 && !sessionStorage.getItem(shareKey)) {
+            sessionStorage.setItem(shareKey, '1');
+            setTimeout(() => {
+                showToast(`Auto-sharing ${harvested.harvestedCount} verified answers to Community Hub...`, 2500);
+                showCommunityContributionModal(harvested.subjectCode);
+            }, 1200);
         }
 
         const banner = document.createElement('div');
@@ -4727,6 +4840,10 @@
                                 [Keys]
                             </button>
                         </div>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Auto-minimize toolkit panel to floating smart pill during quiz attempts to avoid blocking questions">
+                            <input id="chk-auto-min-quiz" type="checkbox" ${autoMinimizeQuiz ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Auto-minimize panel during quiz attempts</span>
+                        </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Inject convenient 'Copy AI' and 'Copy Image' buttons directly above question cards in the Moodle page">
                             <input id="chk-show-in-q-btns" type="checkbox" ${showInQuestionAiBtns ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Show "Copy for AI" buttons inside questions</span>
@@ -4751,45 +4868,49 @@
                         </div>
                     ` : ''}
 
-                    <!-- Primary Cloud Sync & Push Row -->
+                    <!-- Primary 1-Click Actions: Pull & Share -->
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1.2; justify-content: center; padding: 5px 6px;" title="Pull verified answers directly from free GitHub community database">
+                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 6px;" title="Pull verified answers directly from free GitHub community database">
                             ${ICONS.cloudDownload} <span>Cloud Sync</span>
                         </button>
-                        <button id="btn-cloud-push" class="amaes-btn" style="flex: 0.9; justify-content: center; padding: 5px 6px; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; border: none; font-weight: 600;" title="Push your cached answers directly to GitHub repository (via token)">
-                            ${ICONS.github} <span>Push</span>
-                        </button>
-                        <button id="btn-config-cloud" class="amaes-btn amaes-btn-outline" style="flex: 0.7; justify-content: center; padding: 5px 6px;" title="Configure GitHub Token & Cloud Database Repository">
-                            ${ICONS.cloud} <span>Config</span>
+                        <button id="btn-contribute-db" class="amaes-btn" style="flex: 1.3; justify-content: center; padding: 6px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" title="Share collected verified answers to the community GitHub hub (zero personal tokens or account required)">
+                            ${ICONS.upload} <span>Share to Hub</span>
                         </button>
                     </div>
 
-                    <!-- 1-Click Community Contribution Hub -->
-                    <button id="btn-contribute-db" class="amaes-btn" style="justify-content: center; padding: 7px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" title="Share all collected verified answers to the community GitHub hub with automated anti-sabotage merge protection">
-                        ${ICONS.upload} <span>Share Database to Community Hub</span>
-                    </button>
-
-                    <!-- Share, Multi-Import & Export Section -->
-                    <div style="display: flex; gap: 5px;">
-                        <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Copy clean study guide text to clipboard to share on Messenger or Discord">
-                            ${ICONS.share} <span>Share Text</span>
-                        </button>
-                        <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Download cached verified answers as a JSON file">
-                            ${ICONS.download} <span>Export</span>
-                        </button>
-                        <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1.1; justify-content: center; padding: 4px 6px;" title="Import & cross-reference JSON files with consensus conflict resolution">
-                            ${ICONS.upload} <span>Import</span>
-                        </button>
-                        <input id="file-import-json" type="file" multiple accept=".json" style="display: none;" />
-                    </div>
-
-                    <!-- AMAUOED Scraper (Collapsible Accordion) -->
+                    <!-- Consolidated Import / Export & Files Accordion -->
                     <details style="border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 7px; background: rgba(0,0,0,0.15);">
                         <summary style="font-size: 10px; font-weight: 700; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
-                            <span>AMAUOED Scraper (Fallback)</span>
+                            <span>Import / Export & Files</span>
                             <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
                         </summary>
-                        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+                        <div style="display: flex; gap: 4px; margin-top: 6px;">
+                            <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; font-size: 10px;" title="Download cached verified answers as a JSON file">
+                                ${ICONS.download} <span>Export</span>
+                            </button>
+                            <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; font-size: 10px;" title="Import & cross-reference JSON files with consensus conflict resolution">
+                                ${ICONS.upload} <span>Import</span>
+                            </button>
+                            <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; font-size: 10px;" title="Copy clean study guide text to clipboard to share on Messenger or Discord">
+                                ${ICONS.share} <span>Share</span>
+                            </button>
+                            <input id="file-import-json" type="file" multiple accept=".json" style="display: none;" />
+                        </div>
+                    </details>
+
+                    <!-- Advanced / Developer Tools (AMAUOED Scraper + Token Push) -->
+                    <details style="border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 7px; background: rgba(0,0,0,0.15);">
+                        <summary style="font-size: 10px; font-weight: 700; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                            <span>Advanced / Developer Tools</span>
+                            <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
+                        </summary>
+                        <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
+                            <!-- Push via Token (Auto-Prompts Config If Missing) -->
+                            <button id="btn-cloud-push" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 5px; font-size: 10px; font-weight: 600;" title="Push your cached answers directly via personal GitHub token (auto-prompts configuration if token is missing)">
+                                ${ICONS.github} <span>Push via Token (Auto-Config)</span>
+                            </button>
+
+                            <!-- Legacy AMAUOED Scraper -->
                             <div style="display: flex; gap: 4px; align-items: center;">
                                 <input id="amauoed-url-input" type="text" value="${defaultAmauoedUrl}" placeholder="Paste or auto-find amauoed.com link..." title="AMAUOED course answer key URL" style="
                                     flex: 1;
@@ -4807,30 +4928,38 @@
                                     ${ICONS.search} <span>Auto-Find</span>
                                 </button>
                             </div>
-                            <div id="amauoed-url-match-badge" style="display: none; font-size: 10px; padding: 3px 5px; border-radius: 4px; margin-top: 1px; line-height: 1.35; box-sizing: border-box;"></div>
+                            <div id="amauoed-url-match-badge" style="display: none; font-size: 10px; padding: 3px 5px; border-radius: 4px; line-height: 1.35; box-sizing: border-box;"></div>
                             <button id="btn-fetch-amauoed" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 4px; font-size: 10px;" title="Scrape and cache questions from the linked AMAUOED course URL">
                                 ${ICONS.download} <span id="fetch-btn-label">${cachedQuestions ? `Scrape & Cache (${cachedQuestions.length} in DB)` : 'Scrape & Cache'}</span>
                             </button>
+
+                            <!-- Advanced review triggers -->
+                            <div style="display: flex; flex-direction: column; gap: 3px; border-top: 1px solid var(--border-subtle); padding-top: 4px;">
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically download JSON backup when viewing a quiz review page">
+                                    <input id="chk-auto-dl-json" type="checkbox" ${localStorage.getItem('amaes_auto_dl_json') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
+                                    <span>Auto-download JSON on Review</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically push verified questions to GitHub repository when viewing review page (requires token)">
+                                    <input id="chk-auto-push-github" type="checkbox" ${localStorage.getItem('amaes_auto_push_github') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
+                                    <span>Auto-push via Token on Review</span>
+                                </label>
+                            </div>
                         </div>
                     </details>
 
-                    <!-- Auto Settings for Review / Sync -->
+                    <!-- Auto Settings for Sync & Sharing -->
                     <div style="display: flex; flex-direction: column; gap: 4px; background: var(--surface-subtle); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically pull and sync verified community answers when opening a course page">
                             <input id="chk-auto-cloud-sync" type="checkbox" ${autoCloudSync ? 'checked' : ''} style="cursor: pointer;" />
                             <span style="font-weight: 600; color: var(--text-primary);">Auto-pull community answers on course open</span>
                         </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically queue / share verified answers to Community Hub on quiz review (Default: ON)">
+                            <input id="chk-auto-community-share" type="checkbox" ${autoCommunityShare ? 'checked' : ''} style="cursor: pointer;" />
+                            <span style="font-weight: 600; color: var(--accent-green);">Auto-share verified answers on Review</span>
+                        </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically highlight verified answers whenever you navigate to a quiz page">
                             <input id="chk-auto-hl-quiz" type="checkbox" ${autoHighlightQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-highlight on quiz open</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically download JSON backup when viewing a quiz review page">
-                            <input id="chk-auto-dl-json" type="checkbox" ${localStorage.getItem('amaes_auto_dl_json') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-download JSON on Review</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically push verified questions to GitHub repository when viewing review page (requires token)">
-                            <input id="chk-auto-push-github" type="checkbox" ${localStorage.getItem('amaes_auto_push_github') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-push to GitHub on Review</span>
                         </label>
                     </div>
                 </div>
@@ -5716,6 +5845,15 @@
             };
         }
 
+        const chkAutoMinQuiz = document.getElementById('chk-auto-min-quiz');
+        if (chkAutoMinQuiz) {
+            chkAutoMinQuiz.onchange = () => {
+                autoMinimizeQuiz = chkAutoMinQuiz.checked;
+                localStorage.setItem('amaes_auto_min_quiz', autoMinimizeQuiz);
+                showToast(`Auto-minimize during quizzes: ${autoMinimizeQuiz ? 'Enabled' : 'Disabled'}`);
+            };
+        }
+
         const chkKeyboardShortcuts = document.getElementById('chk-keyboard-shortcuts');
         if (chkKeyboardShortcuts) {
             chkKeyboardShortcuts.onchange = () => {
@@ -6174,9 +6312,19 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
 
                 const pat = localStorage.getItem('amaes_github_token');
                 if (!pat) {
-                    // Frictionless zero-token contribution hub
-                    showCommunityContributionModal(subCode);
-                    return;
+                    const enteredToken = prompt(
+                        `GITHUB TOKEN REQUIRED FOR DIRECT COMMITS\n\n` +
+                        `To push directly via GitHub API, enter your Personal Access Token (PAT) with repo write permissions.\n\n` +
+                        `(Tip: You can also click "Share to Community Hub" for 1-click submission without any personal tokens!)`
+                    );
+                    if (enteredToken && enteredToken.trim()) {
+                        localStorage.setItem('amaes_github_token', enteredToken.trim());
+                        showToast("GitHub Token saved!");
+                    } else {
+                        showToast("Opening 1-Click Community Hub (Zero Token)...");
+                        showCommunityContributionModal(subCode);
+                        return;
+                    }
                 }
 
                 btnCloudPush.disabled = true;
@@ -6229,12 +6377,12 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                         showToast("GitHub Token saved!");
                         setLog("GitHub Token configured for 1-click commits!", "var(--accent-green)");
                     } else if (trimmed.startsWith('url ')) {
-                        const u = trimmed.replace(/^url\s+/, '').trim();
-                        cloudDbBaseUrl = u;
-                        localStorage.setItem('amaes_cloud_db_url', u);
-                        showToast("Cloud Database URL saved!");
-                        setLog(`Cloud Database URL set to: <b>${u}</b>`, "var(--accent-green)");
-                    } else if (trimmed.toLowerCase() === 'clear') {
+                        const url = trimmed.replace(/^url\s+/, '').trim();
+                        localStorage.setItem('amaes_cloud_db_url', url);
+                        cloudDbBaseUrl = url;
+                        showToast("Cloud DB URL updated!");
+                        setLog(`Cloud Database URL updated to <b>${url}</b>`, "var(--accent-blue)");
+                    } else if (trimmed === 'clear') {
                         localStorage.removeItem('amaes_github_token');
                         showToast("GitHub Token cleared!");
                         setLog("GitHub Token cleared.", "var(--text-muted)");
@@ -6257,6 +6405,16 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                 localStorage.setItem('amaes_auto_cloud_sync', autoCloudSync);
                 showToast(`Auto-pull community answers: ${autoCloudSync ? 'Enabled' : 'Disabled'}`);
                 setLog(`Auto-pull community answers on course open: <b>${autoCloudSync ? 'ON' : 'OFF'}</b>`, autoCloudSync ? "var(--accent-green)" : "var(--accent-amber)");
+            };
+        }
+
+        const chkAutoCommunityShare = document.getElementById('chk-auto-community-share');
+        if (chkAutoCommunityShare) {
+            chkAutoCommunityShare.onchange = (e) => {
+                autoCommunityShare = e.target.checked;
+                localStorage.setItem('amaes_auto_community_share', autoCommunityShare);
+                showToast(`Auto-share to Community Hub: ${autoCommunityShare ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-share verified answers on Review: <b>${autoCommunityShare ? 'ON' : 'OFF'}</b>`, autoCommunityShare ? "var(--accent-green)" : "var(--accent-amber)");
             };
         }
 
@@ -6561,6 +6719,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
         setupQuizKeyboardShortcuts();
         showWelcomeOnboardingModal(false);
         injectDashboardCourseBadges();
+        injectCoursePageHeaderActions();
         checkForScriptUpdates(false);
 
         // Auto Cloud Sync: sync answers from community repository once per session in background
@@ -6597,6 +6756,14 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                 injectDashboardCourseBadges();
             });
             obs.observe(document.body, { childList: true, subtree: true });
+        }
+
+        // Observe DOM mutations on course homepage to maintain quick action header
+        if (checkIsCoursePage()) {
+            const courseObs = new MutationObserver(() => {
+                injectCoursePageHeaderActions();
+            });
+            courseObs.observe(document.body, { childList: true, subtree: true });
         }
     }
 

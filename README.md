@@ -1,11 +1,11 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.5)
+[![Version](https://img.shields.io/badge/version-1.0.7-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.7)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 
-> **Version 1.0.5** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.0.7** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
@@ -32,7 +32,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey / Violentmonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Extensions will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.0.5`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
+- **On-Demand Check**: Click the version badge (`v1.0.7`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
 
 ---
 
@@ -53,11 +53,11 @@ The **AMAES & ACLC Moodle Toolkit** is an advanced paired userscript designed fo
 ### Multi-Course Retention in LocalStorage
 When you navigate between multiple subjects (e.g. `CS6301`, `ITE6200`, `HUM6100`), each course's database remains strictly segregated and preserved under its unique key in your browser's local storage. Switching subjects or taking quizzes in parallel will never overwrite or purge previous course answers.
 
-### Cross-Attempt Elimination & Deduction Engine (New in v1.0.5)
+### Cross-Attempt Elimination & Deduction Engine
 In quizzes with multiple attempts or shared pools where Moodle does not display the correct answer upon failure, every attempt now builds **negative knowledge**:
 1. **Wrong Answer Tracking**: Any choice selected that received 0.00 marks or was flagged incorrect by Moodle is permanently logged as eliminated.
 2. **Visual Strikethrough & Probability Indicator**:
-   - Eliminated choices are crossed out in red dashed boxes with `[❌ Eliminated (Wrong)]` tags (or weighted like `2x Wrong` if repeatedly eliminated).
+   - Eliminated choices are crossed out in red dashed boxes with `[Eliminated (Wrong)]` tags (or weighted like `2x Wrong` if repeatedly eliminated).
    - Remaining viable choices display estimated probabilities (e.g. `~50% chance` when 2 of 4 options are eliminated).
 3. **Auto-Pick Immunity**: The Co-Pilot and Auto-Quiz solvers are strictly prohibited from picking any eliminated choice.
 4. **Automatic Logical Deduction**: In a 4-choice question, when 3 choices are confirmed incorrect across retakes or community data, the 4th choice is **100% mathematically deduced** as correct. The script highlights it in green, auto-picks it, and immediately upgrades it to a permanent verified answer.
@@ -179,7 +179,7 @@ amaes-moodle-toolkit/
 ├── README.md                     # Documentation & overview
 ├── INSTALL.md                    # Detailed browser & extension setup guide
 ├── LICENSE                       # MIT Open Source License
-├── amaes-moodle-toolkit.user.js  # Main userscript (v1.0.5)
+├── amaes-moodle-toolkit.user.js  # Main userscript (v1.0.7)
 └── assets/
     └── aclc_logo_transparent.png # Official ACLC College logo asset
 ```
