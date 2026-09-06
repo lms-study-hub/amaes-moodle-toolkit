@@ -568,6 +568,8 @@
         localStorage.setItem('amaes_smart_skip_quiz', 'true');
         localStorage.setItem('amaes_show_in_question_ai_btns', 'true');
         localStorage.setItem('amaes_ai_prompt_hint', 'true');
+        localStorage.setItem('amaes_auto_community_share', 'true');
+        localStorage.setItem('amaes_auto_min_quiz', 'true');
 
         autoQuizMode = false;
         quizPersonality = 'passive';
