@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.1.2
+// @version      1.2.0
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.1.2";
+    const SCRIPT_VERSION = "v1.2.0";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -566,6 +566,8 @@
         updateCheck('chk-auto-push-github', false);
 
         // Update welcome modal checkboxes if open
+        updateCheck('welcome-chk-sync', true);
+        updateCheck('welcome-chk-share', true);
         updateCheck('welcome-chk-harvest', true);
         updateCheck('welcome-chk-hl', true);
         updateCheck('welcome-chk-copy', true);
@@ -637,6 +639,45 @@
         });
 
         return stats;
+    }
+
+    // Detects all enrolled courses visible on the Moodle dashboard or course catalog
+    function detectDashboardCourses() {
+        const results = [];
+        const seen = new Set();
+        const courseCards = document.querySelectorAll(`
+            .dashboard-card,
+            [data-region="card-item"],
+            .course-info-container,
+            .card.dashboard-card,
+            .coursename,
+            [data-region="course-content"],
+            .coursebox
+        `);
+
+        courseCards.forEach(card => {
+            const titleElem = card.querySelector('.coursename, .coursename .multiline, h3, h4, .text-truncate, a') || card;
+            const cardText = (titleElem.innerText || card.innerText || '').trim();
+            if (!cardText) return;
+
+            let subCode = '';
+            const codeMatch = cardText.match(/-\s*([A-Za-z0-9]+) /) || cardText.match(/\b([A-Za-z]{2,6}\d{3,4}[A-Za-z]*)\b/);
+            if (codeMatch) {
+                subCode = codeMatch[1].toUpperCase();
+            }
+
+            if (subCode && subCode !== 'DEFAULT' && subCode !== 'GENERAL' && !seen.has(subCode)) {
+                seen.add(subCode);
+                const cached = getCachedAnswers(subCode);
+                results.push({
+                    code: subCode,
+                    count: cached ? cached.length : 0,
+                    title: cardText.split('\n')[0].trim()
+                });
+            }
+        });
+
+        return results;
     }
 
     // Injects verified DB indicators on home/dashboard course cards
@@ -738,6 +779,114 @@
         });
     }
 
+    // Displays an onboarding callout banner on the Moodle dashboard for new users
+    function injectDashboardGuideBanner() {
+        if (!isUserLoggedIn()) return;
+        if (!window.location.pathname.includes('/my/') && !window.location.pathname.includes('courses.php')) return;
+        if (document.getElementById('amaes-dashboard-guide-banner')) return;
+        if (localStorage.getItem('amaes_guide_banner_dismissed') === 'true') return;
+
+        const allDbs = getAllSavedSubjectDatabases();
+        const totalCached = Object.values(allDbs).reduce((acc, list) => acc + (list ? list.length : 0), 0);
+        if (totalCached > 50) return;
+
+        const container = document.querySelector('#region-main, .course-wrapper, [data-region="courses-view"], .dashboard-card-deck') || document.body;
+        if (!container) return;
+
+        const dashCourses = detectDashboardCourses();
+        const courseCount = dashCourses.length;
+
+        const banner = document.createElement('div');
+        banner.id = 'amaes-dashboard-guide-banner';
+        banner.style.cssText = `
+            margin: 12px 0;
+            padding: 10px 14px;
+            background: linear-gradient(135deg, rgba(30, 41, 59, 0.95), rgba(15, 23, 42, 0.95));
+            border: 1px solid rgba(59, 130, 246, 0.4);
+            border-left: 4px solid var(--accent-blue, #3b82f6);
+            border-radius: 8px;
+            color: #f8fafc;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            font-size: 11.5px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            z-index: 10;
+        `;
+
+        banner.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                <span style="display: flex; align-items: center; justify-content: center; background: rgba(59, 130, 246, 0.2); color: #60a5fa; width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0;">
+                    ${ICONS.cloudDownload}
+                </span>
+                <div>
+                    <div style="font-weight: 700; color: #fff; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                        <span>Auto-Sync Database Ready</span>
+                        <span style="font-size: 9.5px; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 1px 6px; border-radius: 4px; font-weight: 700;">100% Autonomous</span>
+                    </div>
+                    <div style="color: #cbd5e1; font-size: 11px; margin-top: 2px;">
+                        ${courseCount > 0
+                            ? `Detected <b>${courseCount} courses</b> (${dashCourses.map(c => c.code).join(', ')}). Open any course to auto-sync answers, or click below to pull verified databases now!`
+                            : 'Open any enrolled course to automatically sync verified questions and answers from the community database!'}
+                    </div>
+                </div>
+            </div>
+            <div style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;">
+                ${courseCount > 0 ? `
+                    <button id="btn-banner-sync-all" class="amaes-btn amaes-btn-green" style="font-size: 10.5px; padding: 5px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                        ${ICONS.zap} <span>Sync All Courses Now</span>
+                    </button>
+                ` : ''}
+                <button id="btn-banner-dismiss-guide" style="background: none; border: none; color: #94a3b8; font-size: 16px; cursor: pointer; padding: 2px 6px; line-height: 1;" title="Dismiss">&times;</button>
+            </div>
+        `;
+
+        if (container === document.body) {
+            banner.style.position = 'fixed';
+            banner.style.top = '60px';
+            banner.style.right = '20px';
+            banner.style.maxWidth = '460px';
+            banner.style.zIndex = '9999';
+            document.body.appendChild(banner);
+        } else {
+            container.insertBefore(banner, container.firstChild);
+        }
+
+        const dismissBtn = banner.querySelector('#btn-banner-dismiss-guide');
+        if (dismissBtn) {
+            dismissBtn.onclick = () => {
+                localStorage.setItem('amaes_guide_banner_dismissed', 'true');
+                banner.remove();
+            };
+        }
+
+        const syncAllBtn = banner.querySelector('#btn-banner-sync-all');
+        if (syncAllBtn) {
+            syncAllBtn.onclick = () => {
+                syncAllBtn.disabled = true;
+                syncAllBtn.innerHTML = `${ICONS.rotateCcw} <span>Syncing...</span>`;
+                let completed = 0;
+                let totalFound = 0;
+                dashCourses.forEach(c => {
+                    syncAnswersFromCloud(c.code).then(res => {
+                        if (res && res.count) totalFound += res.count;
+                    }).finally(() => {
+                        completed++;
+                        if (completed === dashCourses.length) {
+                            showToast(`Auto-sync complete! Loaded ${totalFound} answers across ${completed} courses.`);
+                            injectDashboardCourseBadges();
+                            syncAllBtn.innerHTML = `${ICONS.check} <span>Synced!</span>`;
+                            setTimeout(() => {
+                                banner.remove();
+                            }, 2500);
+                        }
+                    });
+                });
+            };
+        }
+    }
+
     // ==========================================
     // Course & Activity Detection
     // ==========================================
@@ -768,7 +917,7 @@
         let subjectCode = '';
         let subjectName = '';
 
-        const codeMatch = fullTitle.match(/-\s*([A-Za-z0-9]+)\b/);
+        const codeMatch = fullTitle.match(/-\s*([A-Za-z0-9]+)\b/) || fullTitle.match(/\b([A-Za-z]{2,6}\d{3,4}[A-Za-z]*)\b/);
         if (codeMatch) {
             subjectCode = codeMatch[1].toUpperCase();
 
@@ -776,6 +925,8 @@
             if (codeIndex !== -1) {
                 const remainder = fullTitle.substring(codeIndex + codeMatch[1].length).trim();
                 subjectName = remainder.replace(/^[:\-–\s]+/, '').split('|')[0].trim();
+            } else {
+                subjectName = fullTitle.replace(codeMatch[1], '').replace(/^[:\-–\s]+/, '').trim();
             }
         }
 
@@ -4712,7 +4863,10 @@
     }
 
     // ==========================================
-        // Welcome & Quick-Start Onboarding Modal
+    // ==========================================
+    // Welcome & Quick-Start Onboarding Modal
+    // ==========================================
+
     function showWelcomeOnboardingModal(force = false) {
         if (!force && (!isUserLoggedIn() || localStorage.getItem('amaes_welcome_dismissed') === 'true')) {
             return;
@@ -4720,6 +4874,38 @@
 
         const existing = document.getElementById('amaes-welcome-modal');
         if (existing) existing.remove();
+
+        const courseInfo = detectCourseInfo();
+        const currentSubCode = (courseInfo && courseInfo.subjectCode && courseInfo.subjectCode !== 'GENERAL' && courseInfo.subjectCode !== 'DEFAULT') ? courseInfo.subjectCode : null;
+        const dashCourses = detectDashboardCourses();
+
+        let statusHtml = '';
+        if (currentSubCode) {
+            statusHtml = `
+                <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 6px 10px; font-size: 10.5px; display: flex; align-items: center; justify-content: space-between;">
+                    <span>Current Subject: <b style="color: #34d399;">${currentSubCode}</b></span>
+                    <span style="font-size: 9.5px; color: #a7f3d0; font-weight: 600;">⚡ Ready to auto-sync</span>
+                </div>
+            `;
+        } else if (dashCourses.length > 0) {
+            statusHtml = `
+                <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.08); border-radius: 6px; padding: 7px 10px; font-size: 10.5px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+                        <span style="font-weight: 600; color: #93c5fd;">Detected ${dashCourses.length} Dashboard Course${dashCourses.length > 1 ? 's' : ''}:</span>
+                        <span style="font-size: 9.5px; color: #34d399; font-weight: 700;">1-Click Auto-Sync</span>
+                    </div>
+                    <div style="display: flex; gap: 4px; flex-wrap: wrap;">
+                        ${dashCourses.map(c => `<span style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); padding: 1px 6px; border-radius: 3px; font-size: 9.5px; font-weight: 700; font-family: monospace;">${c.code}</span>`).join('')}
+                    </div>
+                </div>
+            `;
+        } else {
+            statusHtml = `
+                <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 6px 10px; font-size: 10.5px; color: #fcd34d;">
+                    💡 <b>Next Step:</b> Open any course from your dashboard — the toolkit will auto-sync verified answers immediately!
+                </div>
+            `;
+        }
 
         const modal = document.createElement('div');
         modal.id = 'amaes-welcome-modal';
@@ -4742,7 +4928,7 @@
                 background: var(--surface, #1e293b);
                 border: 1px solid var(--border, #334155);
                 border-radius: 12px;
-                max-width: 480px;
+                max-width: 500px;
                 width: 100%;
                 box-shadow: 0 20px 40px rgba(0,0,0,0.6);
                 overflow: hidden;
@@ -4766,14 +4952,72 @@
                         <span style="font-weight: 800; font-size: 14px; color: #fff;">Moodle Toolkit</span>
                         <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: var(--accent-green, #10b981); padding: 2px 6px; border-radius: 4px; font-weight: 700;">${SCRIPT_VERSION}</span>
                     </div>
-                    <button id="btn-close-welcome" style="background:none; border:none; color:#94a3b8; font-size:20px; cursor:pointer; padding: 2px 6px; line-height: 1;">&times;</button>
+                    <button id="btn-close-welcome" style="background:none; border:none; color:#94a3b8; font-size:20px; cursor:pointer; padding: 2px 6px; line-height: 1;" title="Close">&times;</button>
                 </div>
 
                 <!-- Body Scrollable -->
                 <div style="padding: 14px 18px; overflow-y: auto; font-size: 11.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 10px;">
                     
-                    <!-- 1. Keyboard Shortcuts (Top Priority for Quick Use) -->
-                    <div style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px;">
+                    <!-- 1. Quick Start Guide (How To Use & Auto-Sync) -->
+                    <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-weight: 700; color: #60a5fa; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.zap} <span>Quick Start: How To Use (Zero Setup)</span>
+                            </div>
+                            <span style="font-size: 9.5px; color: var(--text-muted);">Autonomous & Hands-Free</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--text-secondary, #cbd5e1);">
+                            <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                <span style="background: rgba(59, 130, 246, 0.25); color: #93c5fd; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">STEP 1</span>
+                                <span><b>Open Any Course Page:</b> Click into any subject. The toolkit automatically detects your subject code (e.g. <code>CS6301</code>) and <b>auto-syncs the verified database</b> in the background — no manual importing needed!</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                <span style="background: rgba(16, 185, 129, 0.25); color: #34d399; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">STEP 2</span>
+                                <span><b>Take Quizzes Hands-Free:</b> Verified answers highlight in green automatically. Eliminates wrong options during retakes so you never guess the same wrong choice twice.</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                <span style="background: rgba(167, 139, 250, 0.25); color: #c4b5fd; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">STEP 3</span>
+                                <span><b>Auto-Harvest & Share:</b> Completed past quizzes and reviews are harvested and anonymously shared so everyone always has up-to-date answers.</span>
+                            </div>
+                        </div>
+                        ${statusHtml}
+                    </div>
+
+                    <!-- 2. Community-Driven Auto-Share Card (Anonymous & Autonomous) -->
+                    <div style="background: rgba(16, 185, 129, 0.08); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="font-weight: 700; color: #34d399; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.upload} <span>Community-Driven Auto-Share</span>
+                            </div>
+                            <span style="font-size: 9.5px; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 1px 6px; border-radius: 4px; font-weight: 700;">100% Anonymous</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-secondary, #cbd5e1); line-height: 1.45;">
+                            This toolkit is completely student-driven! As you complete quizzes using your account, verified answers are <b>automatically shared to the global student database</b> so question banks stay up to date for you and your classmates.
+                        </div>
+                        <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 6px; padding: 7px 9px; font-size: 10px; color: #cbd5e1; line-height: 1.45;">
+                            <div style="font-weight: 700; color: #e2e8f0; margin-bottom: 2px;">🔒 Safe & 100% Anonymous Guarantee:</div>
+                            • <b>Zero Personal Data:</b> Your student ID, name, email, account password, and Moodle tokens are <b>NEVER</b> transmitted or saved.<br/>
+                            • <b>Only Question & Answer Texts:</b> Only the question prompt and verified teacher-marked answers are contributed.<br/>
+                            • <b>Autonomous:</b> Runs seamlessly in the background as you study — no files or GitHub setup needed.
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 5px; margin-top: 2px;">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically pull and sync verified community answers when opening any course page">
+                                <input id="welcome-chk-sync" type="checkbox" ${autoCloudSync ? 'checked' : ''} style="cursor: pointer;" />
+                                <span style="font-weight: 600;">Auto-sync verified questions when opening courses</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically & anonymously share verified answers to the community hub on quiz review">
+                                <input id="welcome-chk-share" type="checkbox" ${autoCommunityShare ? 'checked' : ''} style="cursor: pointer;" />
+                                <span style="font-weight: 600; color: #34d399;">Automatically & anonymously share verified answers to the world</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically scan and harvest answers from completed quizzes on course or grade report load">
+                                <input id="welcome-chk-harvest" type="checkbox" ${autoHarvestGrades ? 'checked' : ''} style="cursor: pointer;" />
+                                <span>Auto-harvest confirmed answers from past quizzes in Grade Report</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <!-- 3. Keyboard Shortcuts (In Quizzes) -->
+                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                             <div style="font-weight: 700; color: #c4b5fd; font-size: 12px; display: flex; align-items: center; gap: 6px;">
                                 ${ICONS.keyboard} <span>Keyboard Shortcuts (In Quizzes)</span>
@@ -4808,36 +5052,7 @@
                         </div>
                     </div>
 
-                    <!-- 2. Zero-Effort Flow (3 Bite-Sized Bullets) -->
-                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;">
-                        <div style="font-weight: 700; color: var(--accent-blue, #3b82f6); font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                            ${ICONS.shieldCheck} <span>How It Works (Zero-Click & Safe)</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--text-secondary, #cbd5e1);">
-                            <div style="display: flex; gap: 8px; align-items: flex-start;">
-                                <span style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">SYNC</span>
-                                <span><b>Auto-Sync:</b> Pulls verified answers from Cloud Hub when you open any course.</span>
-                            </div>
-                            <div style="display: flex; gap: 8px; align-items: flex-start;">
-                                <span style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">ELIMINATE</span>
-                                <span><b>Wrong Choice Tracking:</b> Eliminates incorrect options during retakes so you never guess the same wrong choice twice.</span>
-                            </div>
-                            <div style="display: flex; gap: 8px; align-items: flex-start;">
-                                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">HARVEST</span>
-                                <span><b>Safe Review Auto-Share:</b> Only 100% verified teacher answers are harvested and automatically shared to the community database.</span>
-                            </div>
-                            <div style="display: flex; gap: 8px; align-items: flex-start;">
-                                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">PAST QUIZZES</span>
-                                <span><b>Auto-Harvest Past Quizzes:</b> Scans your course Grade Report to automatically harvest 100% verified answers from previously completed quizzes in the background.</span>
-                            </div>
-                        </div>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer; margin-top: 2px; background: rgba(16, 185, 129, 0.08); padding: 5px 8px; border-radius: 6px; border: 1px solid rgba(16, 185, 129, 0.25);">
-                            <input id="welcome-chk-harvest" type="checkbox" ${autoHarvestGrades ? 'checked' : ''} style="cursor: pointer;" />
-                            <span style="font-weight: 600;">Enable Automatic Past Quiz Harvesting from Grade Report</span>
-                        </label>
-                    </div>
-
-                    <!-- 3. Share with Classmates / Browser Setup (Collapsible) -->
+                    <!-- 4. Share with Classmates / Browser Setup (Collapsible) -->
                     <details style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 10px;">
                         <summary style="font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
                             <span style="display: flex; align-items: center; gap: 6px;">
@@ -4886,9 +5101,19 @@
                             ${ICONS.github} <span>Repo</span>
                         </a>
                     </div>
-                    <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                        ${ICONS.checkCircle} <span>Got It</span>
-                    </button>
+                    ${dashCourses.length > 0 ? `
+                        <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            ${ICONS.zap} <span>Got It & Auto-Sync My Courses</span>
+                        </button>
+                    ` : currentSubCode ? `
+                        <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            ${ICONS.zap} <span>Got It & Auto-Sync ${currentSubCode}</span>
+                        </button>
+                    ` : `
+                        <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            ${ICONS.checkCircle} <span>Got It, Let's Start!</span>
+                        </button>
+                    `}
                 </div>
             </div>
         `;
@@ -4906,57 +5131,26 @@
             }
         };
 
+        bindWelcomeToggle('welcome-chk-sync', 'amaes_auto_cloud_sync', (v) => {
+            autoCloudSync = v;
+            const p = document.getElementById('chk-auto-cloud-sync');
+            if (p) p.checked = v;
+        });
+        bindWelcomeToggle('welcome-chk-share', 'amaes_auto_community_share', (v) => {
+            autoCommunityShare = v;
+            const p = document.getElementById('chk-auto-community-share');
+            if (p) p.checked = v;
+        });
         bindWelcomeToggle('welcome-chk-harvest', 'amaes_auto_harvest_grades', (v) => {
             autoHarvestGrades = v;
             const p = document.getElementById('chk-auto-harvest-grades');
             if (p) p.checked = v;
         });
-        bindWelcomeToggle('welcome-chk-hl', 'amaes_auto_highlight_quiz', (v) => {
-            autoHighlightQuiz = v;
-            const p = document.getElementById('chk-auto-hl-quiz');
-            if (p) p.checked = v;
-        });
-        bindWelcomeToggle('welcome-chk-copy', 'amaes_auto_copy_ai', (v) => {
-            autoCopyQuizForAI = v;
-            const p = document.getElementById('chk-auto-copy-ai');
-            if (p) p.checked = v;
-        });
-        bindWelcomeToggle('welcome-chk-skip', 'amaes_smart_skip_quiz', (v) => {
-            smartSkipQuiz = v;
-            const p = document.getElementById('chk-smart-skip');
-            if (p) p.checked = v;
-        });
-        bindWelcomeToggle('welcome-chk-next', 'amaes_auto_next_quiz', (v) => {
-            autoNextQuiz = v;
-            const p = document.getElementById('chk-auto-next');
-            if (p) p.checked = v;
-        });
-        bindWelcomeToggle('welcome-chk-submit', 'amaes_auto_submit_quiz', (v) => {
-            autoSubmitQuiz = v;
-            const p = document.getElementById('chk-auto-submit');
-            if (p) p.checked = v;
-        });
-        bindWelcomeToggle('welcome-chk-hotkeys', 'amaes_enable_hotkeys', (v) => {
-            enableKeyboardShortcuts = v;
-            const p = document.getElementById('chk-keyboard-shortcuts');
-            if (p) p.checked = v;
-        });
-        bindWelcomeToggle('welcome-chk-dl', 'amaes_auto_dl_json', (v) => {
-            const p = document.getElementById('chk-auto-dl-json');
-            if (p) p.checked = v;
-        });
-
-        const btnResetWelcome = document.getElementById('btn-welcome-reset-defaults');
-        if (btnResetWelcome) {
-            btnResetWelcome.onclick = () => {
-                resetAllSettingsToDefault();
-            };
-        }
 
         const btnWelcomeShareHub = document.getElementById('btn-welcome-share-hub');
         if (btnWelcomeShareHub) {
             btnWelcomeShareHub.onclick = () => {
-                showCommunityContributionModal(courseInfo ? courseInfo.subjectCode : null);
+                showCommunityContributionModal(currentSubCode);
             };
         }
 
@@ -5007,6 +5201,43 @@
         const dismiss = () => {
             localStorage.setItem('amaes_welcome_dismissed', 'true');
             modal.remove();
+
+            // Trigger auto-sync immediately if enabled
+            if (autoCloudSync) {
+                if (dashCourses.length > 0) {
+                    showToast(`⚡ Auto-syncing answers for ${dashCourses.length} courses...`, 3000);
+                    setLog(`Auto-syncing ${dashCourses.length} courses from community database...`, "var(--accent-blue)");
+                    dashCourses.forEach(c => {
+                        sessionStorage.setItem(`amaes_cloud_synced_${c.code}`, '1');
+                        syncAnswersFromCloud(c.code).then(res => {
+                            if (res && res.count > 0) {
+                                injectDashboardCourseBadges();
+                            }
+                        }).catch(e => {
+                            logDebug(`Auto-sync error for ${c.code}: ${e.message}`);
+                        });
+                    });
+                } else if (currentSubCode) {
+                    if (!sessionStorage.getItem(`amaes_cloud_synced_${currentSubCode}`)) {
+                        sessionStorage.setItem(`amaes_cloud_synced_${currentSubCode}`, '1');
+                        setLog(`Auto-syncing community database for <b>${currentSubCode}</b>...`, "var(--accent-blue)");
+                        syncAnswersFromCloud(currentSubCode).then(res => {
+                            if (res && res.count > 0) {
+                                showToast(`Auto-synced ${res.count} community answers for ${currentSubCode}!`);
+                                setLog(`Auto-synced <b>${res.count}</b> answers for <b>${currentSubCode}</b> from Cloud Hub.`, "var(--accent-green)");
+                                const fresh = getCachedAnswers(currentSubCode);
+                                const lbl = document.getElementById('fetch-btn-label');
+                                if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+                                if (checkIsQuizPage()) {
+                                    highlightQuizAnswers(fresh, false);
+                                }
+                            }
+                        });
+                    }
+                } else {
+                    showToast("💡 Open any course to automatically sync verified answers!", 4000);
+                }
+            }
         };
 
         const _el__btn_close_welcome_ = document.getElementById('btn-close-welcome');
@@ -7192,6 +7423,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
         setupQuizKeyboardShortcuts();
         showWelcomeOnboardingModal(false);
         injectDashboardCourseBadges();
+        injectDashboardGuideBanner();
         checkForScriptUpdates(false);
 
         // Auto-Harvest past quizzes: scan Grade Report once per session per course
@@ -7243,12 +7475,56 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
             } catch (e) {
                 logDebug(`Auto cloud sync error: ${e.message}`);
             }
+
+            // Dashboard Auto-Sync: automatically sync all detected courses visible on dashboard
+            try {
+                const isDashboard = window.location.pathname.includes('/my/') || window.location.pathname.includes('courses.php') || window.location.pathname === '/' || window.location.pathname.endsWith('/index.php');
+                if (isDashboard) {
+                    setTimeout(() => {
+                        const dashCourses = detectDashboardCourses();
+                        dashCourses.forEach(c => {
+                            if (c.code && !sessionStorage.getItem(`amaes_cloud_synced_${c.code}`)) {
+                                sessionStorage.setItem(`amaes_cloud_synced_${c.code}`, '1');
+                                syncAnswersFromCloud(c.code).then(res => {
+                                    if (res && res.count > 0) {
+                                        injectDashboardCourseBadges();
+                                    }
+                                }).catch(e => {
+                                    logDebug(`Dashboard auto-sync note for ${c.code}: ${e.message}`);
+                                });
+                            }
+                        });
+                    }, 1200);
+                }
+            } catch (e) {
+                logDebug(`Dashboard auto-sync error: ${e.message}`);
+            }
         }
 
-        // Observe DOM mutations on dashboard to tag dynamically loaded course cards
+        // Observe DOM mutations on dashboard to tag dynamically loaded course cards & auto-sync
         if (window.location.pathname.includes('/my/') || window.location.pathname.includes('courses.php')) {
+            let debounceTimer = null;
             const obs = new MutationObserver(() => {
                 injectDashboardCourseBadges();
+                injectDashboardGuideBanner();
+                if (autoCloudSync) {
+                    if (debounceTimer) clearTimeout(debounceTimer);
+                    debounceTimer = setTimeout(() => {
+                        const dashCourses = detectDashboardCourses();
+                        dashCourses.forEach(c => {
+                            if (c.code && !sessionStorage.getItem(`amaes_cloud_synced_${c.code}`)) {
+                                sessionStorage.setItem(`amaes_cloud_synced_${c.code}`, '1');
+                                syncAnswersFromCloud(c.code).then(res => {
+                                    if (res && res.count > 0) {
+                                        injectDashboardCourseBadges();
+                                    }
+                                }).catch(e => {
+                                    logDebug(`Dashboard observer auto-sync note for ${c.code}: ${e.message}`);
+                                });
+                            }
+                        });
+                    }, 1500);
+                }
             });
             obs.observe(document.body, { childList: true, subtree: true });
         }

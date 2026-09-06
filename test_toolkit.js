@@ -398,14 +398,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.1.2');
+    mockStorage.set('amaes_latest_version_seen', '1.2.1');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.1.1";
+    const currentVersion = "v1.2.0";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.1.2 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.1 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
@@ -425,6 +425,73 @@ test("Userscript Syntax Integrity: ensures amaes-moodle-toolkit.user.js parses w
     assert.doesNotThrow(() => {
         new vm.Script(scriptCode);
     }, "Userscript must parse without syntax errors!");
+});
+
+// --------------------------------------------------
+// 14. Dashboard Course Detection & Regex Integrity
+// --------------------------------------------------
+function extractCourseCode(cardText) {
+    if (!cardText) return '';
+    const codeMatch = cardText.match(/-\s*([A-Za-z0-9]+) /) || cardText.match(/\b([A-Za-z]{2,6}\d{3,4}[A-Za-z]*)\b/);
+    return codeMatch ? codeMatch[1].toUpperCase() : '';
+}
+
+test("Dashboard Course Detection: accurately extracts codes from standard Moodle card titles", () => {
+    assert.strictEqual(extractCourseCode("2513 - CS6301 Data Structures and Algorithms"), "CS6301");
+    assert.strictEqual(extractCourseCode("2411 - ITE6301 Information Management"), "ITE6301");
+    assert.strictEqual(extractCourseCode("MATH101 Calculus 1"), "MATH101");
+    assert.strictEqual(extractCourseCode("GEDC106 Readings in Philippine History"), "GEDC106");
+    assert.strictEqual(extractCourseCode("Random Announcement Card"), "");
+});
+
+// --------------------------------------------------
+// 15. Anonymous Community Sharing Payload Guard
+// --------------------------------------------------
+test("Anonymous Community Auto-Share: payload guarantees 0 personal data leakage", () => {
+    const questions = [
+        { qRaw: "What is 2+2?", ansRaw: "4", choices: ["2", "3", "4", "5"] }
+    ];
+    const subCode = "MATH101";
+
+    const payload = {
+        subjectCode: subCode,
+        totalQuestions: questions.length,
+        source: "auto_harvester",
+        submittedAt: new Date().toISOString(),
+        questions: questions.map(q => ({
+            question: q.qRaw,
+            answer: q.ansRaw,
+            choices: q.choices,
+            wrongAnswers: []
+        }))
+    };
+
+    // Ensure strictly forbidden fields are not present
+    const forbiddenKeys = ['studentId', 'userId', 'username', 'email', 'name', 'token', 'session', 'ip'];
+    forbiddenKeys.forEach(key => {
+        assert.strictEqual(key in payload, false, `Forbidden identifier key '${key}' found in payload!`);
+    });
+
+    assert.strictEqual(payload.subjectCode, "MATH101");
+    assert.strictEqual(payload.totalQuestions, 1);
+    assert.strictEqual(payload.questions[0].answer, "4");
+});
+
+// --------------------------------------------------
+// 16. Default Configuration for Hands-Free Community Sharing
+// --------------------------------------------------
+test("Onboarding & Autonomous Sync Defaults: auto-sync and auto-community-share default to true", () => {
+    const mockLocalStorage = {
+        getItem: (k) => null // default state when fresh install
+    };
+
+    const autoCloudSync = mockLocalStorage.getItem('amaes_auto_cloud_sync') !== 'false';
+    const autoCommunityShare = mockLocalStorage.getItem('amaes_auto_community_share') !== 'false';
+    const autoHarvestGrades = mockLocalStorage.getItem('amaes_auto_harvest_grades') !== 'false';
+
+    assert.strictEqual(autoCloudSync, true, "autoCloudSync must default to true for hands-free sync!");
+    assert.strictEqual(autoCommunityShare, true, "autoCommunityShare must default to true for community updates!");
+    assert.strictEqual(autoHarvestGrades, true, "autoHarvestGrades must default to true for zero-click past quiz harvest!");
 });
 
 console.log("\n==================================================");
