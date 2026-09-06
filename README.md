@@ -1,11 +1,11 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.2.4-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.2.4)
+[![Version](https://img.shields.io/badge/version-1.2.5-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.2.5)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 
-> **Version 1.2.4** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.2.5** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
@@ -32,7 +32,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey / Violentmonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Extensions will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.2.4`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
+- **On-Demand Check**: Click the version badge (`v1.2.5`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
 
 ---
 
