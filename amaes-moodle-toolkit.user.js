@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.6
+// @version      1.3.7
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.6";
+    const SCRIPT_VERSION = "v1.3.7";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -4340,46 +4340,64 @@
         }
         output += `${data.qText}\n\n`;
 
-        // Check if database has confirmed wrong choices for this question
+        // Check if database or live DOM has confirmed wrong choices for this question
         const courseInfo = detectCourseInfo();
         const subCode = courseInfo.subjectCode || 'GENERAL';
         const cached = getCachedAnswers(subCode);
-        let eliminatedWrong = [];
+        const eliminatedWrong = [];
         let detectedAnswer = null;
+
+        // 1. Inspect live DOM: grab any choices already marked as eliminated on the page
+        que.querySelectorAll('.amaes-eliminated-choice, .amaes-eliminated-badge').forEach(el => {
+            const row = el.closest('div.r0, div.r1, tr, li') || el;
+            const label = row.querySelector('label') || row;
+            let text = cleanDOMToAI(label).replace(/^[a-zA-Z0-9][.)]\s*/, '').replace(/Wrong\s*\(?\d*x?\)?\s*•?\s*0%\s*Prob/i, '').trim();
+            if (text && !eliminatedWrong.some(w => normalizeChoice(w) === normalizeChoice(text))) {
+                eliminatedWrong.push(text);
+            }
+        });
+
+        // 2. Cross-reference with subject database across ALL matching candidate entries
         if (cached && cached.length > 0) {
             const moodleQNorm = normalizeText(data.qText);
-            const cand = cached.find(c => c.qNorm === moodleQNorm || (c.qNorm.length > 20 && (c.qNorm.includes(moodleQNorm) || moodleQNorm.includes(c.qNorm))));
-            if (cand) {
-                if (Array.isArray(cand.wrongAnswers) && cand.wrongAnswers.length > 0) {
-                    eliminatedWrong = cand.wrongAnswers
-                        .map(w => typeof w === 'string' ? w : w.text)
-                        .filter(Boolean);
-                }
-
-                if (cand.ansRaw) {
-                    const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || '');
-                    const isConfirmedWrong = eliminatedWrong.some(w => {
-                        const wNorm = normalizeChoice(w);
-                        return wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm);
+            const cands = cached.filter(c => c.qNorm === moodleQNorm || (c.qNorm.length > 20 && (c.qNorm.includes(moodleQNorm) || moodleQNorm.includes(c.qNorm))));
+            cands.forEach(cand => {
+                if (Array.isArray(cand.wrongAnswers)) {
+                    cand.wrongAnswers.forEach(w => {
+                        const wText = typeof w === 'string' ? w : (w.text || w.norm);
+                        if (wText && !eliminatedWrong.some(e => normalizeChoice(e) === normalizeChoice(wText))) {
+                            eliminatedWrong.push(wText);
+                        }
                     });
-
-                    if (!isConfirmedWrong) {
-                        const isDeduced = Boolean(cand.deduced);
-                        const isVerified = Boolean(cand.verified);
-                        const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
-                        const prob = isVerified ? 100 : (isAmauoed ? 95 : 90);
-                        const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : (isAmauoed ? 'AMAUOED • 95% Probability' : `${prob}% Probability`));
-                        detectedAnswer = {
-                            text: cand.ansRaw,
-                            label: label,
-                            source: cand.source || 'Verified Database'
-                        };
-                    } else {
-                        cand.ansRaw = '';
-                        cand.ansNorm = '';
-                        cand.verified = false;
-                    }
                 }
+            });
+
+            // 3. Find verified/consensus answer ONLY among candidates whose answer is NOT eliminated!
+            const validCandidates = cands.filter(cand => {
+                const ansText = cand.ansRaw || cand.answer || '';
+                const ansNorm = cand.ansNorm || normalizeChoice(ansText);
+                if (!ansNorm) return false;
+                const isConfirmedWrong = eliminatedWrong.some(w => {
+                    const wNorm = normalizeChoice(w);
+                    return wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm);
+                });
+                return !isConfirmedWrong;
+            });
+
+            if (validCandidates.length > 0) {
+                // Sort by verification & consensus
+                validCandidates.sort((a, b) => ((b.verified ? 10 : 0) + (b.confirmations || 1)) - ((a.verified ? 10 : 0) + (a.confirmations || 1)));
+                const bestCand = validCandidates[0];
+                const isDeduced = Boolean(bestCand.deduced);
+                const isVerified = Boolean(bestCand.verified);
+                const isAmauoed = Boolean((bestCand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(bestCand.sources) && bestCand.sources.some(s => s.toLowerCase().includes('amauoed'))));
+                const prob = isVerified ? 100 : (isAmauoed ? 95 : 90);
+                const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : (isAmauoed ? 'AMAUOED • 95% Probability' : `${prob}% Probability`));
+                detectedAnswer = {
+                    text: bestCand.ansRaw || bestCand.answer,
+                    label: label,
+                    source: bestCand.source || 'Verified Database'
+                };
             }
         }
 
@@ -4398,7 +4416,20 @@
                 }
             }
         } else if (data.choices && data.choices.length > 0) {
-            output += data.choices.join('\n');
+            // Annotate confirmed wrong choices directly in the choices list so AI sees it immediately!
+            const annotatedChoices = data.choices.map(choice => {
+                const cleanChoiceText = choice.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                const normC = normalizeChoice(cleanChoiceText);
+                const isWrong = eliminatedWrong.some(w => {
+                    const wNorm = normalizeChoice(w);
+                    return wNorm === normC || unscriptDigits(wNorm) === unscriptDigits(normC);
+                });
+                if (isWrong) {
+                    return `${choice} [CONFIRMED WRONG - DO NOT SELECT]`;
+                }
+                return choice;
+            });
+            output += annotatedChoices.join('\n');
 
             if (detectedAnswer && copyIncludeConfidence) {
                 output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
@@ -4406,7 +4437,8 @@
 
             // Contradiction guard: never eliminate all choices in AI instructions
             if (eliminatedWrong.length > 0 && eliminatedWrong.length < data.choices.length) {
-                output += `\n\n[CONFIRMED WRONG CHOICES - DO NOT SELECT]:\n` + eliminatedWrong.map(w => `- ${w} (Confirmed INCORRECT in previous attempt)`).join('\n');
+                output += `\n\n[CONFIRMED WRONG CHOICES - DO NOT SELECT]:\n` + eliminatedWrong.map(w => `- "${w}" (Tested and confirmed 100% INCORRECT in prior attempt)`).join('\n');
+                output += `\nCRITICAL: Do NOT choose any option marked as confirmed wrong above. Pick strictly from the remaining candidate choices.`;
             }
 
             if (withHint) {

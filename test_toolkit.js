@@ -1879,6 +1879,112 @@ test("Dropdown Option Elimination: marks confirmed wrong options with (❌ Elimi
     assert.ok(script.includes("isDeducedSelect"), "Must support deduction on dropdowns");
 });
 
+// --------------------------------------------------
+// 59. AI Prompt Contradiction Safety on Eliminated Choices
+// --------------------------------------------------
+test("AI Prompt Contradiction Safety: eliminates debunked choices from detected answer and annotates wrong choices in prompt", () => {
+    function simulatePromptGeneration(data, cached, eliminatedFromDOM = [], copyIncludeConfidence = true) {
+        let output = `${data.qText}\n\n`;
+        const eliminatedWrong = [...eliminatedFromDOM];
+        let detectedAnswer = null;
+
+        // Cross-reference with candidate matches
+        const moodleQNorm = normalizeChoice(data.qText);
+        const cands = cached.filter(c => c.qNorm === moodleQNorm);
+        cands.forEach(cand => {
+            if (Array.isArray(cand.wrongAnswers)) {
+                cand.wrongAnswers.forEach(w => {
+                    const wText = typeof w === 'string' ? w : (w.text || w.norm);
+                    if (wText && !eliminatedWrong.some(e => normalizeChoice(e) === normalizeChoice(wText))) {
+                        eliminatedWrong.push(wText);
+                    }
+                });
+            }
+        });
+
+        // Suppress detected answer if confirmed wrong
+        const validCandidates = cands.filter(cand => {
+            const ansText = cand.ansRaw || cand.answer || '';
+            const ansNorm = cand.ansNorm || normalizeChoice(ansText);
+            if (!ansNorm) return false;
+            const isConfirmedWrong = eliminatedWrong.some(w => normalizeChoice(w) === ansNorm);
+            return !isConfirmedWrong;
+        });
+
+        if (validCandidates.length > 0) {
+            detectedAnswer = {
+                text: validCandidates[0].ansRaw || validCandidates[0].answer,
+                label: 'AMAUOED • 95% Probability',
+                source: validCandidates[0].source || 'Verified Database'
+            };
+        }
+
+        // Annotate choices directly
+        const annotatedChoices = data.choices.map(choice => {
+            const cleanChoiceText = choice.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+            const normC = normalizeChoice(cleanChoiceText);
+            const isWrong = eliminatedWrong.some(w => normalizeChoice(w) === normC);
+            if (isWrong) {
+                return `${choice} [CONFIRMED WRONG - DO NOT SELECT]`;
+            }
+            return choice;
+        });
+        output += annotatedChoices.join('\n');
+
+        if (detectedAnswer && copyIncludeConfidence) {
+            output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
+        }
+
+        if (eliminatedWrong.length > 0 && eliminatedWrong.length < data.choices.length) {
+            output += `\n\n[CONFIRMED WRONG CHOICES - DO NOT SELECT]:\n` + eliminatedWrong.map(w => `- "${w}" (Tested and confirmed 100% INCORRECT in prior attempt)`).join('\n');
+            output += `\nCRITICAL: Do NOT choose any option marked as confirmed wrong above. Pick strictly from the remaining candidate choices.`;
+        }
+
+        return { output, detectedAnswer, eliminatedWrong, annotatedChoices };
+    }
+
+    const questionData = {
+        qText: "The following are phases of C++ Programs except ________.",
+        choices: [
+            "a. edit",
+            "b. load",
+            "c. compile",
+            "d. process"
+        ]
+    };
+
+    // Cache has an AMAUOED entry suggesting "Process" which is debunked!
+    const mockCache = [
+        {
+            qNorm: normalizeChoice("The following are phases of C++ Programs except ________."),
+            ansRaw: "Process",
+            source: "amauoed",
+            wrongAnswers: ["process"]
+        }
+    ];
+
+    const result = simulatePromptGeneration(questionData, mockCache, ["process"]);
+
+    // 1. Detected answer must be suppressed because "Process" is in eliminatedWrong
+    assert.strictEqual(result.detectedAnswer, null, "Debunked answer 'Process' must NOT be suggested in detectedAnswer");
+    assert.ok(!result.output.includes("[DETECTED ANSWER IN DATABASE]"), "Prompt must NOT contain [DETECTED ANSWER IN DATABASE] when suggestion is debunked");
+
+    // 2. Choice 'd. process' must be annotated directly with [CONFIRMED WRONG - DO NOT SELECT]
+    assert.ok(result.output.includes("d. process [CONFIRMED WRONG - DO NOT SELECT]"), "Choice 'process' must be marked [CONFIRMED WRONG - DO NOT SELECT]");
+
+    // 3. Prompt must include the strict warning block
+    assert.ok(result.output.includes("[CONFIRMED WRONG CHOICES - DO NOT SELECT]"), "Prompt must contain CONFIRMED WRONG CHOICES section");
+    assert.ok(result.output.includes('- "process"'), "Prompt must list the debunked option");
+    assert.ok(result.output.includes("CRITICAL: Do NOT choose any option marked as confirmed wrong above"), "Prompt must include CRITICAL instruction");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("[CONFIRMED WRONG - DO NOT SELECT]"), "Userscript must annotate wrong choices in prompt");
+    assert.ok(script.includes("amaes-eliminated-choice"), "Userscript must read live DOM for eliminated choices");
+    assert.ok(script.includes("validCandidates"), "Userscript must filter out debunked candidates before setting detectedAnswer");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
