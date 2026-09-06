@@ -799,8 +799,10 @@
         const doc = new DOMParser().parseFromString(str, 'text/html');
         let text = doc.body.textContent || '';
         text = text.toLowerCase().trim();
-        // Remove prefix like "a. ", "b. ", "select one: "
-        text = text.replace(/^(select one:?\s*|[a-eA-E][.)\s-]+)/, '');
+        // Normalize unicode dashes/minus signs to standard hyphen
+        text = text.replace(/[\u2212\u2013\u2014]/g, '-');
+        // Remove prefix like "select one: ", "a. ", "b) " safely without stripping negative signs
+        text = text.replace(/^select one:?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
         text = text.replace(/\s+/g, ' ');
         text = text.replace(/[.:?!;,]+$/, '');
         return text.trim();
