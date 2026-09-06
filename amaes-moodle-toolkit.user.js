@@ -2119,9 +2119,8 @@
                     const isDirectMatch = choiceText === ansNorm;
                     const isMultiAnswerMatch = (ansNorm.includes(',') || ansNorm.includes(';') || ansNorm.includes('&')) &&
                         ansNorm.split(/[,;&]+/).map(s => normalizeChoice(s)).includes(choiceText);
-                    const isContained = (choiceText.length > 5 && ansNorm.length > 5) && (choiceText.includes(ansNorm) || ansNorm.includes(choiceText));
 
-                    if (isDirectMatch || isMultiAnswerMatch || isContained) {
+                    if (isDirectMatch || isMultiAnswerMatch) {
                         foundMatchForQuestion = true;
 
                         const isAmauoed = cand.source === 'amauoed';
@@ -2203,7 +2202,7 @@
 
                 // 2. Check if choice is confirmed WRONG (elimination)
                 if (!foundMatchForQuestion && allWrongList.length > 0) {
-                    const matchedWrong = allWrongList.find(w => w.norm === choiceText || (choiceText.length > 5 && w.norm.length > 5 && (choiceText.includes(w.norm) || w.norm.includes(choiceText))));
+                    const matchedWrong = allWrongList.find(w => w.norm === choiceText);
                     if (matchedWrong) {
                         const targetRow = row;
                         targetRow.classList.add('amaes-eliminated-choice');
