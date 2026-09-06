@@ -4260,8 +4260,8 @@
             <div style="
                 background: var(--surface, #1e293b);
                 border: 1px solid var(--border, #334155);
-                border-radius: 14px;
-                max-width: 580px;
+                border-radius: 12px;
+                max-width: 480px;
                 width: 100%;
                 box-shadow: 0 20px 40px rgba(0,0,0,0.6);
                 overflow: hidden;
@@ -4272,7 +4272,7 @@
             ">
                 <!-- Header with AMAES + ACLC Logo -->
                 <div style="
-                    padding: 14px 20px;
+                    padding: 12px 18px;
                     background: linear-gradient(135deg, #1e293b, #0f172a);
                     border-bottom: 1px solid var(--border, #334155);
                     display: flex;
@@ -4280,260 +4280,125 @@
                     justify-content: space-between;
                 ">
                     <div style="display: flex; align-items: center; gap: 8px;">
-                        <div>
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                <span style="font-weight: 800; font-size: 15px; color: #fff;">AMAES</span>
-                                <img class="amaes-aclc-logo" src="${getAclcLogoSrc()}" alt="ACLC" title="ACLC College" style="height: 18px; width: auto; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));" />
-                                <span style="font-weight: 800; font-size: 15px; color: #fff;">Moodle Toolkit</span>
-                            </div>
-                            <div style="font-size: 11px; color: var(--accent-green, #10b981); font-weight: 600;">v${SCRIPT_VERSION.replace('v','')} • Quick Start Guide & Setup</div>
-                        </div>
+                        <span style="font-weight: 800; font-size: 14px; color: #fff;">AMAES</span>
+                        <img class="amaes-aclc-logo" src="${getAclcLogoSrc()}" alt="ACLC" title="ACLC College" style="height: 17px; width: auto; object-fit: contain; vertical-align: middle; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.4));" />
+                        <span style="font-weight: 800; font-size: 14px; color: #fff;">Moodle Toolkit</span>
+                        <span style="font-size: 10px; background: rgba(16, 185, 129, 0.2); color: var(--accent-green, #10b981); padding: 2px 6px; border-radius: 4px; font-weight: 700;">${SCRIPT_VERSION}</span>
                     </div>
-                    <button id="btn-close-welcome" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding: 4px;">&times;</button>
+                    <button id="btn-close-welcome" style="background:none; border:none; color:#94a3b8; font-size:20px; cursor:pointer; padding: 2px 6px; line-height: 1;">&times;</button>
                 </div>
 
                 <!-- Body Scrollable -->
-                <div style="padding: 16px 20px; overflow-y: auto; font-size: 12px; line-height: 1.5; display: flex; flex-direction: column; gap: 12px;">
+                <div style="padding: 14px 18px; overflow-y: auto; font-size: 11.5px; line-height: 1.5; display: flex; flex-direction: column; gap: 10px;">
                     
-                    <!-- 0. Extension & Browser Setup (Violentmonkey & Developer Mode) -->
-                    <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 8px; padding: 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 6px;">
-                            <div style="font-weight: 700; color: #34d399; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.download} <span>How to Install & Browser Prerequisites</span>
-                            </div>
-                            <button id="btn-copy-install-guide" class="amaes-btn amaes-btn-outline" style="font-size: 10px; padding: 3px 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Copy complete step-by-step installation instructions for classmates">
-                                ${ICONS.copy} <span>Copy Classmate Guide</span>
-                            </button>
-                        </div>
-
-                        <div style="display: flex; flex-direction: column; gap: 8px; font-size: 11.5px; line-height: 1.5; color: var(--text-secondary, #cbd5e1);">
-                            <div>
-                                <b style="color: #fff;">1. Install a Userscript Manager (Violentmonkey Recommended):</b>
-                                <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap;">
-                                    <a href="https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Violentmonkey (Chrome/Brave/Edge)</a>
-                                    <span style="color: var(--text-muted);">•</span>
-                                    <a href="https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/" target="_blank" rel="noopener noreferrer" style="color: #38bdf8; text-decoration: underline; font-weight: 600;">Violentmonkey (Firefox)</a>
-                                    <span style="color: var(--text-muted);">•</span>
-                                    <a href="https://www.tampermonkey.net/" target="_blank" rel="noopener noreferrer" style="color: #94a3b8; text-decoration: underline;">Tampermonkey</a>
-                                </div>
-                            </div>
-
-                            <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 8px 10px;">
-                                <div style="color: #fbbf24; font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 5px;">
-                                    [Notice] Crucial Step for Chrome / Brave / Edge Users:
-                                </div>
-                                <div style="font-size: 11px; color: #fde68a;">
-                                    Open your browser's extensions page (<code>chrome://extensions</code> or <code>edge://extensions</code>) and toggle <b>"Developer Mode"</b> to <b>ON</b> (top-right switch). Modern Chromium browsers block userscripts from executing on pages unless Developer Mode is active!
-                                </div>
-                            </div>
-
-                            <div>
-                                <b style="color: #fff;">2. Install or Update Script:</b>
-                                <div style="margin-top: 2px;">
-                                    Once Violentmonkey is installed and Developer Mode is enabled, open <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" style="color: #34d399; font-weight: 600; text-decoration: underline;">Install Script (Direct Link)</a> and click <b>"Confirm installation"</b>.
-                                </div>
-                                <div style="margin-top: 6px;">
-                                    <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-green" style="display: inline-flex; align-items: center; gap: 5px; text-decoration: none; padding: 4px 10px; font-size: 11px; font-weight: 700;">
-                                        ${ICONS.download} <span>Update / Reinstall Script (${SCRIPT_VERSION})</span>
-                                    </a>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 1. Safe Co-Pilot -->
-                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
-                        <div style="font-weight: 700; color: var(--accent-blue, #3b82f6); font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                            ${ICONS.shieldCheck} <span>1. Safe Co-Pilot by Default</span>
-                        </div>
-                        <ul style="margin: 0; padding-left: 18px; color: var(--text-secondary, #cbd5e1);">
-                            <li><b>Co-Pilot (Passive - Default):</b> Purely helpful companion. Auto-picks verified answers. If an unknown question appears, it <b>pauses and auto-copies for AI</b> so you stay in full control.</li>
-                            <li><b>Speedrun (Aggressive):</b> Fast-forwards by skipping unknown questions (opt-in anytime from the Quiz tab).</li>
-                            <li><b>Safe by Default:</b> Overly aggressive features (auto-submit, auto-next jumps, auto-download) are strictly <b>disabled</b> upon install.</li>
-                        </ul>
-                    </div>
-
-                    <!-- 2. Feature Toggles & Safe Defaults -->
-                    <div style="background: rgba(59, 130, 246, 0.06); border: 1px solid rgba(59, 130, 246, 0.25); border-radius: 8px; padding: 12px;">
+                    <!-- 1. Keyboard Shortcuts (Top Priority for Quick Use) -->
+                    <div style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <span style="font-weight: 700; color: #93c5fd; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.sliders} <span>2. Quick Feature Toggles & Safe Defaults</span>
+                            <div style="font-weight: 700; color: #c4b5fd; font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.keyboard} <span>Keyboard Shortcuts (In Quizzes)</span>
+                            </div>
+                            <span style="font-size: 9.5px; color: var(--text-muted);">Instant Hands-Free Solving</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10.5px;">
+                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">Space / N</kbd>
+                                <span>Next Question</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">1 - 4</kbd>
+                                <span>Pick Choice A - D</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">C</kbd>
+                                <span>Copy for AI</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">V</kbd>
+                                <span>Paste AI Answer</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">P</kbd>
+                                <span>Pause / Resume</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">H</kbd>
+                                <span>Highlight DB</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 2. Zero-Effort Flow (3 Bite-Sized Bullets) -->
+                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;">
+                        <div style="font-weight: 700; color: var(--accent-blue, #3b82f6); font-size: 12px; display: flex; align-items: center; gap: 6px;">
+                            ${ICONS.shieldCheck} <span>How It Works (Zero-Click & Safe)</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11px; color: var(--text-secondary, #cbd5e1);">
+                            <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                <span style="background: rgba(59, 130, 246, 0.2); color: #60a5fa; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">SYNC</span>
+                                <span><b>Auto-Sync:</b> Pulls verified answers from Cloud Hub when you open any course.</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                <span style="background: rgba(239, 68, 68, 0.2); color: #f87171; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">ELIMINATE</span>
+                                <span><b>Wrong Choice Tracking:</b> Eliminates incorrect options during retakes so you never guess the same wrong choice twice.</span>
+                            </div>
+                            <div style="display: flex; gap: 8px; align-items: flex-start;">
+                                <span style="background: rgba(16, 185, 129, 0.2); color: #34d399; font-size: 9.5px; font-weight: 700; padding: 1px 5px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">HARVEST</span>
+                                <span><b>Safe Review Auto-Share:</b> Only 100% verified teacher answers are harvested and automatically shared to the community database.</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Share with Classmates / Browser Setup (Collapsible) -->
+                    <details style="background: rgba(0,0,0,0.15); border: 1px solid var(--border-subtle); border-radius: 8px; padding: 8px 10px;">
+                        <summary style="font-size: 11px; font-weight: 600; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                            <span style="display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.share} <span>Share with Classmates / Setup Guide</span>
                             </span>
-                            <button id="btn-welcome-reset-defaults" class="amaes-btn amaes-btn-outline" style="font-size: 10px; padding: 3px 8px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                                ${ICONS.rotateCcw} <span>Reset to Defaults</span>
-                            </button>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-hl" type="checkbox" ${autoHighlightQuiz ? 'checked' : ''} />
-                                <span>Auto-Highlight Answers</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-copy" type="checkbox" ${autoCopyQuizForAI ? 'checked' : ''} />
-                                <span>Auto-Copy for AI</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-hotkeys" type="checkbox" ${enableKeyboardShortcuts ? 'checked' : ''} />
-                                <span>Keyboard Shortcuts (N, C, V, P, 1-4)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-skip" type="checkbox" ${smartSkipQuiz ? 'checked' : ''} />
-                                <span>Smart Skip Answered</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} />
-                                <span>Auto-Next Page (Aggressive)</span>
-                            </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} />
-                                <span>Auto-Submit Quiz (Aggressive)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <!-- Keyboard Shortcuts Cheatsheet -->
-                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 8px; padding: 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                            <div style="font-weight: 700; color: #c4b5fd; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.keyboard} <span>Keyboard Shortcuts Cheatsheet</span>
-                            </div>
-                            <span style="font-size: 10px; color: #a78bfa; font-weight: 600;">Active during quiz attempts</span>
-                        </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
-                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">N / Space</kbd>
-                                <span>Next Page / Advance</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">1 - 4 / A - D</kbd>
-                                <span>Select Choice Option</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">C</kbd>
-                                <span>Copy Question for AI</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">V</kbd>
-                                <span>Paste AI & Auto-Select</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">P</kbd>
-                                <span>Pause / Start Auto-Quiz</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">H</kbd>
-                                <span>Highlight DB Answers</span>
+                            <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
+                        </summary>
+                        <div style="margin-top: 8px; display: flex; flex-direction: column; gap: 8px; font-size: 11px; color: var(--text-secondary);">
+                            <div>Need to help a classmate install this toolkit? Violentmonkey + Developer Mode is all that's required:</div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                                <button id="btn-copy-install-guide" class="amaes-btn amaes-btn-outline" style="font-size: 10px; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                    ${ICONS.copy} <span>Copy Classmate Guide to Clipboard</span>
+                                </button>
+                                <button id="btn-welcome-share-hub" class="amaes-btn amaes-btn-green" style="font-size: 10px; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                                    ${ICONS.upload} <span>Share Database to Hub</span>
+                                </button>
                             </div>
                         </div>
-                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
-                            * Hotkeys are ignored while typing in text boxes. You can toggle shortcuts on/off anytime from the Quiz Solver tab.
-                        </div>
-                    </div>
-
-                    <!-- 3. Answer Sources & Confidence Indicators -->
-                    <div style="background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 12px;">
-                        <div style="font-weight: 700; color: #a78bfa; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                            ${ICONS.database} <span>3. Answer Sources & Confidence Indicators</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 11.5px;">
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="background: #10b981; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                                    ${ICONS.database} Verified DB
-                                </span>
-                                <span style="color: var(--text-secondary);">100% verified from teacher review feedback or the community cloud repository.</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 8px;">
-                                <span style="background: #0284c7; color: #fff; font-size: 10px; font-weight: 700; padding: 2px 7px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;">
-                                    ${ICONS.external} AMAUOED
-                                </span>
-                                <span style="color: var(--text-secondary);">Scraped study guide from amauoed.com (useful when official DB is missing).</span>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- 4. Safe Contributions & Non-100% Scoring -->
-                    <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 12px;">
-                        <div style="font-weight: 700; color: #34d399; font-size: 13px; margin-bottom: 6px; display: flex; align-items: center; gap: 6px;">
-                            ${ICONS.checkBadge} <span>4. Scoring Under 100%? You Can Still Safely Contribute!</span>
-                        </div>
-                        <p style="margin: 0; color: var(--text-secondary, #cbd5e1); font-size: 11.5px; line-height: 1.5;">
-                            The harvester only saves answers where Moodle confirms full marks or displays the official teacher answer (<i>"The correct answer is: ..."</i>). Unrevealed missed questions are strictly ignored, so your score will <b>never</b> pollute database accuracy!
-                        </p>
-                    </div>
-
-                    <!-- 5. How to Contribute to Community Database -->
-                    <div style="background: rgba(16, 185, 129, 0.08); border: 1px solid rgba(16, 185, 129, 0.25); border-radius: 8px; padding: 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; flex-wrap: wrap; gap: 6px;">
-                            <div style="font-weight: 700; color: #34d399; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.upload} <span>5. How to Contribute Verified Answers (Zero Tokens Required!)</span>
-                            </div>
-                            <button id="btn-welcome-share-hub" class="amaes-btn" style="font-size: 10px; padding: 3px 10px; background: #10b981; color: #fff; border: none; border-radius: 4px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
-                                ${ICONS.upload} <span>Share Database to Hub</span>
-                            </button>
-                        </div>
-                        <p style="margin: 0 0 8px 0; color: var(--text-secondary, #cbd5e1); font-size: 11.5px; line-height: 1.5;">
-                            Contributing your harvested questions helps all classmates and requires <b>zero personal tokens or account setup</b>:
-                        </p>
-                        <ol style="margin: 0; padding-left: 18px; color: var(--text-secondary, #cbd5e1); font-size: 11px; line-height: 1.6;">
-                            <li><b>Complete any quiz:</b> Open the review page (<code>/mod/quiz/review.php</code>). The toolkit auto-harvests only 100% verified teacher answers.</li>
-                            <li><b>Click "Share Database to Community Hub":</b> Located in the Database tab or directly on the review banner.</li>
-                            <li><b>Submit with 1-Click:</b> Click "Submit via 1-Click GitHub Issue". Automated GitHub Actions CI verifies and merges your questions into the community database without any manual approval needed!</li>
-                        </ol>
-                    </div>
+                    </details>
 
                 </div>
 
                 <!-- Footer Actions -->
                 <div style="
-                    padding: 12px 20px;
+                    padding: 10px 18px;
                     border-top: 1px solid var(--border, #334155);
                     background: rgba(0,0,0,0.2);
                     display: flex;
                     align-items: center;
                     justify-content: space-between;
-                    gap: 10px;
-                    flex-wrap: wrap;
+                    gap: 8px;
                 ">
-                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" class="amaes-btn" style="
-                            color: #fff;
-                            background: linear-gradient(135deg, #2563eb, #1d4ed8);
-                            text-decoration: none;
-                            font-weight: 700;
-                            font-size: 11px;
-                            display: inline-flex;
-                            align-items: center;
-                            gap: 6px;
-                            padding: 6px 12px;
-                            border-radius: 6px;
-                            white-space: nowrap;
-                            cursor: pointer;
-                        " title="Click to reinstall or update script directly in Violentmonkey">
-                            ${ICONS.download} <span>Update Script (${SCRIPT_VERSION})</span>
-                        </a>
-                        <button id="btn-welcome-check-update" class="amaes-btn amaes-btn-outline" style="font-size: 11px; padding: 6px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
+                    <div style="display: flex; align-items: center; gap: 6px;">
+                        <button id="btn-welcome-check-update" class="amaes-btn amaes-btn-outline" style="font-size: 10.5px; padding: 5px 9px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;">
                             ${ICONS.rotateCcw} <span id="welcome-update-label">Check Updates</span>
                         </button>
                         <a href="${GITHUB_REPO_URL}" target="_blank" rel="noopener noreferrer" style="
                             color: #93c5fd;
                             text-decoration: none;
-                            font-weight: 600;
-                            font-size: 11px;
+                            font-size: 10.5px;
                             display: inline-flex;
                             align-items: center;
-                            gap: 6px;
-                            padding: 6px 10px;
-                            background: rgba(59, 130, 246, 0.12);
-                            border: 1px solid rgba(59, 130, 246, 0.3);
-                            border-radius: 6px;
-                            white-space: nowrap;
-                            flex-shrink: 0;
+                            gap: 4px;
+                            padding: 5px 8px;
                         ">
-                            ${ICONS.github} <span>GitHub Repo</span>
+                            ${ICONS.github} <span>Repo</span>
                         </a>
                     </div>
-                    <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 7px 18px; font-size: 12px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                        ${ICONS.checkCircle} <span>Get Started</span>
+                    <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
+                        ${ICONS.checkCircle} <span>Got It</span>
                     </button>
                 </div>
             </div>
