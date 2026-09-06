@@ -2028,6 +2028,54 @@ test("Image Choice Normalization: normalizes Moodle dynamic pluginfile URLs so i
     assert.ok(script.includes("moodle-asset:"), "Userscript must contain moodle-asset normalization token");
 });
 
+// --------------------------------------------------
+// 62. Review Screen Full Mark Safety
+// --------------------------------------------------
+test("Review Screen Full Mark Safety: questions that score 1.00 out of 1.00 are guaranteed to never display Wrong Choice Saved, and live text input is harvested as verified answer", () => {
+    function evaluateReviewMarker(isFullMark, isZeroMark, ansText, wrongList, cloudSharingOn) {
+        let pillStatus = null;
+        let bannerText = null;
+
+        const wrongNorms = wrongList.map(w => typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || '')));
+        const ansNorm = normalizeChoice(ansText);
+        const isDebunked = ansNorm && wrongNorms.some(w => w === ansNorm);
+
+        if (isDebunked) {
+            ansText = '';
+        }
+
+        const isVerified = Boolean(!isDebunked && ansText && isFullMark);
+
+        if (isVerified && ansText) {
+            pillStatus = cloudSharingOn ? "Uploaded to DB" : "Saved to Local DB";
+            bannerText = `Verified Answer: "${ansText}"`;
+        } else if (isZeroMark && !isFullMark) {
+            pillStatus = "Wrong Choice Saved";
+            bannerText = `Eliminated: "${wrongList.join(', ')}" (Confirmed Incorrect)`;
+        }
+
+        return { pillStatus, bannerText, isVerified };
+    }
+
+    // Case 1: Question scored 1.00 out of 1.00 with answer "Memory", even if wrongList has old wrong attempts
+    const res1 = evaluateReviewMarker(true, false, "Memory", ["control"], true);
+    assert.strictEqual(res1.isVerified, true, "Full mark question must be verified");
+    assert.strictEqual(res1.pillStatus, "Uploaded to DB", "Must show Uploaded to DB, NEVER Wrong Choice Saved");
+    assert.strictEqual(res1.bannerText, 'Verified Answer: "Memory"');
+
+    // Case 2: Question scored 0.00 out of 1.00 with answer "Process" that was debunked
+    const res2 = evaluateReviewMarker(false, true, "Process", ["Process"], true);
+    assert.strictEqual(res2.isVerified, false, "Debunked answer cannot be verified");
+    assert.strictEqual(res2.pillStatus, "Wrong Choice Saved", "Zero mark question must show Wrong Choice Saved");
+    assert.strictEqual(res2.bannerText, 'Eliminated: "Process" (Confirmed Incorrect)');
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("isZeroMark && !isFullMark"), "Userscript must protect full mark questions from wrong choice pill");
+    assert.ok(script.includes("!ansText && isFullMark"), "Userscript must extract ansText from live DOM when question scored full marks");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

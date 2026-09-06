@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.9
+// @version      1.4.0
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.9";
+    const SCRIPT_VERSION = "v1.4.0";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -5941,6 +5941,27 @@
             const hasExplicitRightElem = Boolean(rightElem && rightElem.innerText.trim());
 
             let ansText = (harvestedItem && harvestedItem.ansRaw) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)) || '';
+
+            // If question scored full marks (1.00 out of 1.00) but ansText wasn't in cache, extract directly from live DOM!
+            if (!ansText && isFullMark) {
+                const textInput = que.querySelector('input[type="text"], textarea, .form-control');
+                if (textInput && (textInput.value || textInput.getAttribute('value'))) {
+                    ansText = (textInput.value || textInput.getAttribute('value')).trim();
+                }
+                const checked = que.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
+                if (!ansText && checked) {
+                    const lbl = checked.closest('label') || checked.closest('div.r0, div.r1') || checked.parentElement;
+                    if (lbl) ansText = cleanDOMToAI(lbl).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                }
+                const selected = que.querySelector('select');
+                if (!ansText && selected && selected.selectedIndex >= 0) {
+                    const opt = selected.options[selected.selectedIndex];
+                    if (opt && opt.value && !opt.text.toLowerCase().includes('choose')) {
+                        ansText = opt.text.trim();
+                    }
+                }
+            }
+
             const wrongList = (harvestedItem && harvestedItem.wrongAnswers) || (dbEntry && dbEntry.wrongAnswers) || [];
             const wrongNorms = wrongList.map(w => typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || '')));
             const ansNorm = normalizeChoice(ansText);
@@ -6052,7 +6073,7 @@
                         </span>
                     `;
                 }
-            } else if (isZeroMark || wrongList.length > 0) {
+            } else if (isZeroMark && !isFullMark) {
                 pill.style.cssText = `
                     display: inline-flex;
                     align-items: center;
