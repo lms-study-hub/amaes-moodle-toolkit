@@ -194,8 +194,19 @@
     }
 
     function renderUpdateNotice(latestVersion) {
-        const container = document.getElementById('amaes-update-container');
-        if (!container) return;
+        let container = document.getElementById('amaes-update-container');
+        if (!container) {
+            setTimeout(() => renderUpdateNotice(latestVersion), 400);
+            return;
+        }
+
+        const versionPill = document.getElementById('amaes-version-pill');
+        if (versionPill) {
+            versionPill.innerHTML = `${SCRIPT_VERSION} <span style="background: #10b981; color: #fff; padding: 1px 4px; border-radius: 3px; font-size: 8px; margin-left: 2px; font-weight: 800;">UPDATE</span>`;
+            versionPill.title = `Update available: v${latestVersion}! Click to install`;
+            versionPill.style.borderColor = '#10b981';
+            versionPill.style.color = '#10b981';
+        }
 
         container.innerHTML = `
             <div id="amaes-update-banner" style="
@@ -240,18 +251,34 @@
         const lastCheck = parseInt(localStorage.getItem('amaes_last_update_check') || '0', 10);
         const now = Date.now();
 
-        if (manual) {
-            setLog("Checking GitHub for toolkit updates...", "var(--accent-blue)", "Querying releases...");
-        } else if (cachedLatest && isNewerVersion(cachedLatest, SCRIPT_VERSION)) {
-            if (sessionStorage.getItem('amaes_update_dismissed') !== cachedLatest) {
-                renderUpdateNotice(cachedLatest);
+        const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, SCRIPT_VERSION);
+
+        // 1. If an update is ALREADY known from cache:
+        if (hasKnownUpdate) {
+            renderUpdateNotice(cachedLatest);
+            if (manual) {
+                // If user clicks check when an update is already known, immediately open installer URL!
+                showToast(`Opening v${cachedLatest} installer in browser...`, 3500);
+                setLog(`Update <b>v${cachedLatest}</b> is already known. Opening installer...`, "var(--accent-green)");
+                try {
+                    window.open(SCRIPT_RAW_URL, '_blank');
+                } catch (e) {
+                    window.location.href = SCRIPT_RAW_URL;
+                }
+                if (callback) callback({ status: 'update_available', version: cachedLatest });
+                return;
             }
         }
 
-        // Throttle background check to once every 2 hours
-        if (!manual && (now - lastCheck < 2 * 60 * 60 * 1000)) {
-            if (callback) callback({ status: 'cached', version: cachedLatest || SCRIPT_VERSION });
+        // 2. Cache throttling: avoid repeated network requests on every page load or repeat clicks
+        const throttleWindow = manual ? 30 * 1000 : 2 * 60 * 60 * 1000;
+        if (!manual && (now - lastCheck < throttleWindow)) {
+            if (callback) callback({ status: hasKnownUpdate ? 'update_available' : 'cached', version: cachedLatest || SCRIPT_VERSION });
             return;
+        }
+
+        if (manual) {
+            setLog("Checking GitHub for toolkit updates...", "var(--accent-blue)", "Querying releases...");
         }
 
         const req = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest :
@@ -266,11 +293,20 @@
 
                 if (isNewerVersion(remoteVer, SCRIPT_VERSION)) {
                     renderUpdateNotice(remoteVer);
-                    setLog(`Update found: v${remoteVer} is available!`, 'var(--accent-blue)', 'Click "Update Now" to install');
+                    setLog(`Update found: <b>v${remoteVer}</b> is available! Opening installer...`, 'var(--accent-green)');
+                    showToast(`Update found: v${remoteVer} is available!`, 4000);
+                    if (manual) {
+                        try {
+                            window.open(SCRIPT_RAW_URL, '_blank');
+                        } catch (e) {
+                            window.location.href = SCRIPT_RAW_URL;
+                        }
+                    }
                     if (callback) callback({ status: 'update_available', version: remoteVer });
                 } else {
                     if (manual) {
-                        setLog(`Toolkit is up to date (${SCRIPT_VERSION})`, 'var(--accent-green)');
+                        setLog(`Toolkit is up to date (<b>${SCRIPT_VERSION}</b>).`, 'var(--accent-green)');
+                        showToast(`Toolkit is up to date (${SCRIPT_VERSION})`);
                     }
                     if (callback) callback({ status: 'up_to_date', version: SCRIPT_VERSION });
                 }
@@ -5085,7 +5121,7 @@
                     </span>
                 </div>
 
-                ${window.location.pathname.includes('/grade/report/user/index.php') ? `
+                ${(window.location.pathname.includes('/grade/report/user') || window.location.pathname.includes('/course/view.php') || Boolean(courseInfo.subjectCode)) ? `
                 <!-- Quick-Action Grade Report Harvester Bar -->
                 <div id="amaes-grades-panel-bar" style="
                     background: rgba(16, 185, 129, 0.12);
@@ -5098,11 +5134,11 @@
                     gap: 5px;
                 ">
                     <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--accent-green);">
-                        <span style="display: flex; align-items: center; gap: 4px;">${ICONS.database} Grade Report Detected</span>
+                        <span style="display: flex; align-items: center; gap: 4px;">${ICONS.database} ${window.location.pathname.includes('/grade/report/user') ? 'Grade Report Active' : 'Past Quiz Harvester'}</span>
                         <span style="font-size: 9px; background: rgba(16, 185, 129, 0.2); padding: 1px 5px; border-radius: 4px;">AUTO-READY</span>
                     </div>
                     <div style="font-size: 9.5px; color: var(--text-secondary); line-height: 1.3;">
-                        Harvest all confirmed answers from your completed quizzes in this course and share online.
+                        Harvest all confirmed answers from your completed quizzes in ${subCode || 'this course'} and sync online.
                     </div>
                     <button id="btn-bar-harvest-grades" class="amaes-btn amaes-btn-green" style="justify-content: center; padding: 5px; font-size: 10.5px; font-weight: 700; cursor: pointer;">
                         ${ICONS.download} <span>Scan & Harvest Completed Quizzes</span>

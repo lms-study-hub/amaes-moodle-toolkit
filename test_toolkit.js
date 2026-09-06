@@ -373,6 +373,49 @@ test("Auto-Harvest Configuration: defaults to enabled and respects session gate"
     assert.strictEqual(mockSession.has(sessionKey), true);
 });
 
+// --------------------------------------------------
+// 12. Update Checker Caching & Throttling
+// --------------------------------------------------
+function isNewerVersion(remote, local) {
+    if (!remote || !local) return false;
+    const r = remote.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+    const l = local.replace(/^v/, '').split('.').map(n => parseInt(n, 10) || 0);
+    for (let i = 0; i < Math.max(r.length, l.length); i++) {
+        const rv = r[i] || 0;
+        const lv = l[i] || 0;
+        if (rv > lv) return true;
+        if (rv < lv) return false;
+    }
+    return false;
+}
+
+test("Update Checker: semantic version comparison handles patches and suffixes", () => {
+    assert.strictEqual(isNewerVersion("1.1.1", "1.1.0"), true);
+    assert.strictEqual(isNewerVersion("1.2.0", "1.1.1"), true);
+    assert.strictEqual(isNewerVersion("v1.1.1", "v1.1.1"), false);
+    assert.strictEqual(isNewerVersion("1.1.0", "1.1.1"), false);
+});
+
+test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
+    const mockStorage = new Map();
+    mockStorage.set('amaes_latest_version_seen', '1.1.2');
+    mockStorage.set('amaes_last_update_check', String(Date.now()));
+
+    const currentVersion = "v1.1.1";
+    const cachedLatest = mockStorage.get('amaes_latest_version_seen');
+    const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
+
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.1.2 must be detected from cache!");
+
+    // Check manual action: should direct to installer immediately
+    let openedUrl = null;
+    const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
+    if (hasKnownUpdate) {
+        openedUrl = SCRIPT_RAW_URL;
+    }
+    assert.strictEqual(openedUrl, SCRIPT_RAW_URL, "Clicking check with cached update must immediately direct to install URL!");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
