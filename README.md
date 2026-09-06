@@ -1,11 +1,11 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.2.2)
+[![Version](https://img.shields.io/badge/version-1.2.3-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.2.3)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 
-> **Version 1.2.2** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.2.3** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
@@ -32,7 +32,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey / Violentmonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Extensions will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.2.2`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
+- **On-Demand Check**: Click the version badge (`v1.2.3`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
 
 ---
 
@@ -54,14 +54,18 @@ The **AMAES & ACLC Moodle Toolkit** is an advanced paired userscript designed fo
 When you navigate between multiple subjects (e.g. `CS6301`, `ITE6200`, `HUM6100`), each course's database remains strictly segregated and preserved under its unique key in your browser's local storage. Switching subjects or taking quizzes in parallel will never overwrite or purge previous course answers.
 
 ### Cross-Attempt Elimination & Deduction Engine
-In quizzes with multiple attempts or shared pools where Moodle does not display the correct answer upon failure, every attempt now builds **negative knowledge**:
-1. **Wrong Answer Tracking**: Any choice selected that received 0.00 marks or was flagged incorrect by Moodle is permanently logged as eliminated.
-2. **Visual Strikethrough & Probability Indicator**:
-   - Eliminated choices are crossed out in red dashed boxes with `[Eliminated (Wrong)]` tags (or weighted like `2x Wrong` if repeatedly eliminated).
-   - Remaining viable choices display estimated probabilities (e.g. `~50% chance` when 2 of 4 options are eliminated).
+In quizzes with multiple attempts or shared pools where Moodle does not display the correct answer upon failure, every attempt builds **actionable statistical intelligence**:
+1. **Unmistakable Wrong Answer Highlighting**: Any choice selected that received 0.00 marks or was flagged incorrect by Moodle is permanently logged as eliminated. It is highlighted with a clear red border, red background tint, strikethrough, and a bold `Wrong • 0% Prob` badge (or `Wrong (2x) • 0% Prob` if confirmed repeatedly).
+2. **Confidence Weights & Probability Badges**:
+   - **Verified Review & Audited DB**: Displays `Verified • 100% Prob` in green.
+   - **AMAUOED Study Guides**: Displays `AMAUOED • 95% Prob` in blue.
+   - **Logical Deduction**: Displays `Deduced • 100% Prob` in emerald.
+   - **Candidate Options**: When wrong choices are eliminated, remaining viable choices display real-time probability badges (e.g. `Candidate • 50% Prob` or `Candidate • 33% Prob`).
 3. **Auto-Pick Immunity**: The Co-Pilot and Auto-Quiz solvers are strictly prohibited from picking any eliminated choice.
 4. **Automatic Logical Deduction**: In a 4-choice question, when 3 choices are confirmed incorrect across retakes or community data, the 4th choice is **100% mathematically deduced** as correct. The script highlights it in green, auto-picks it, and immediately upgrades it to a permanent verified answer.
-5. **AI Prompt Filtering**: When using "Copy for AI", eliminated wrong choices are automatically tagged with `[CONFIRMED WRONG CHOICES - DO NOT SELECT]` so ChatGPT/Gemini does not repeat previous errors.
+5. **Autonomous Community Relay**: Whenever new answers are verified locally (from review screens, deductions, or initial AMAUOED scrapes), they are automatically and anonymously pushed to the community database if auto-share is enabled.
+6. **Smart Static Link Caching**: Amauoed.com links are static. The toolkit intelligently caches scraped guides and verifies local/cloud databases first to prevent redundant network scraping.
+7. **AI Prompt Filtering**: When using "Copy for AI", eliminated wrong choices are automatically tagged with `[CONFIRMED WRONG CHOICES - DO NOT SELECT]` so ChatGPT/Gemini does not repeat previous errors.
 
 ---
 

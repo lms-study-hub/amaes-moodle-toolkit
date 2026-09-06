@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.2
+// @version      1.2.3
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.2";
+    const SCRIPT_VERSION = "v1.2.3";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -2464,16 +2464,18 @@
                         const isAmauoed = cand.source === 'amauoed';
                         const isDeduced = cand.deduced === true;
                         const sourceColor = isDeduced ? '#10b981' : (isAmauoed ? '#0284c7' : '#10b981');
-                        const sourceBg = isDeduced ? 'rgba(16, 185, 129, 0.15)' : (isAmauoed ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)');
+                        const sourceBg = isDeduced ? 'rgba(16, 185, 129, 0.15)' : (isAmauoed ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.14)');
                         const sourceBadgeClass = isAmauoed ? 'amaes-badge-amauoed' : 'amaes-badge-db';
-                        const sourceIcon = isDeduced ? ICONS.lightbulb : (isAmauoed ? ICONS.external : ICONS.database);
-                        const sourceLabel = isDeduced ? 'Deduced (100%)' : (isAmauoed ? 'AMAUOED' : 'Verified DB');
+                        const sourceIcon = isDeduced ? ICONS.lightbulb : (isAmauoed ? ICONS.external : ICONS.checkCircle);
+                        const confSuffix = (cand.confirmations && cand.confirmations > 1) ? ` (${cand.confirmations}x)` : '';
+                        const sourceLabel = isDeduced ? `Deduced • 100% Prob${confSuffix}` : (isAmauoed ? `AMAUOED • 95% Prob${confSuffix}` : `Verified • 100% Prob${confSuffix}`);
 
                         // Apply full row highlight on container
                         const targetRow = row;
                         targetRow.classList.add('amaes-highlighted-choice');
                         targetRow.style.outline = `2px solid ${sourceColor}`;
                         targetRow.style.backgroundColor = sourceBg;
+                        targetRow.style.boxShadow = `0 0 0 1px ${sourceColor}33`;
                         targetRow.style.borderRadius = '6px';
                         targetRow.style.padding = '6px 12px';
                         targetRow.style.margin = '4px 0';
@@ -2544,8 +2546,9 @@
                     if (matchedWrong) {
                         const targetRow = row;
                         targetRow.classList.add('amaes-eliminated-choice');
-                        targetRow.style.outline = '1px dashed rgba(239, 68, 68, 0.7)';
-                        targetRow.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+                        targetRow.style.outline = '1.5px solid #ef4444';
+                        targetRow.style.backgroundColor = 'rgba(239, 68, 68, 0.12)';
+                        targetRow.style.boxShadow = '0 0 0 1px rgba(239, 68, 68, 0.18)';
                         targetRow.style.borderRadius = '6px';
                         targetRow.style.padding = '5px 10px';
                         targetRow.style.margin = '4px 0';
@@ -2559,27 +2562,27 @@
 
                         if (label !== targetRow) {
                             label.style.textDecoration = 'line-through';
-                            label.style.opacity = '0.55';
+                            label.style.opacity = '0.6';
                         }
 
                         let badge = targetRow.querySelector('.amaes-eliminated-badge');
                         if (!badge) {
                             badge = document.createElement('span');
                             badge.className = 'amaes-eliminated-badge';
-                            const countText = matchedWrong.count > 1 ? `${matchedWrong.count}x Wrong` : 'Eliminated (Wrong)';
+                            const countText = matchedWrong.count > 1 ? `Wrong (${matchedWrong.count}x) • 0% Prob` : 'Wrong • 0% Prob';
                             badge.innerHTML = `${ICONS.xCircle} <span>${countText}</span>`;
                             badge.title = `Attempt or classmate history confirmed this choice is incorrect`;
                             badge.style.cssText = `
                                 background: #ef4444;
                                 color: #ffffff;
-                                font-size: 9px;
+                                font-size: 9.5px;
                                 font-weight: 700;
-                                padding: 2px 6px;
+                                padding: 2px 7px;
                                 border-radius: 4px;
                                 margin-left: auto;
                                 display: inline-flex;
                                 align-items: center;
-                                gap: 3px;
+                                gap: 4px;
                                 box-shadow: 0 1px 2px rgba(0,0,0,0.15);
                                 white-space: nowrap;
                                 flex-shrink: 0;
@@ -2616,7 +2619,7 @@
                     if (!badge) {
                         badge = document.createElement('span');
                         badge.className = 'amaes-verified-badge amaes-badge-db';
-                        badge.innerHTML = `${ICONS.lightbulb} <span>Deduced (100% Elimination)</span>`;
+                        badge.innerHTML = `${ICONS.lightbulb} <span>Deduced • 100% Prob</span>`;
                         badge.style.cssText = `
                             background: linear-gradient(135deg, #10b981, #059669);
                             color: #ffffff;
@@ -2660,20 +2663,26 @@
                     // Partial elimination: display remaining probability
                     const remainingProb = Math.round(100 / uneliminated.length);
                     uneliminated.forEach(candRow => {
+                        candRow.style.outline = '1.5px dashed #0284c7';
+                        candRow.style.backgroundColor = 'rgba(2, 132, 199, 0.07)';
+                        candRow.style.borderRadius = '6px';
                         if (!candRow.querySelector('.amaes-probability-hint')) {
                             const pHint = document.createElement('span');
                             pHint.className = 'amaes-probability-hint';
                             pHint.style.cssText = `
                                 font-size: 9.5px;
-                                color: var(--accent-blue, #38bdf8);
-                                background: rgba(56, 189, 248, 0.12);
-                                border: 1px solid rgba(56, 189, 248, 0.25);
-                                padding: 1px 5px;
+                                color: #38bdf8;
+                                background: rgba(56, 189, 248, 0.15);
+                                border: 1px solid rgba(56, 189, 248, 0.35);
+                                padding: 2px 6px;
                                 border-radius: 4px;
                                 margin-left: auto;
-                                font-weight: 600;
+                                font-weight: 700;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 4px;
                             `;
-                            pHint.innerText = `Candidate (~${remainingProb}% chance)`;
+                            pHint.innerHTML = `${ICONS.target} <span>Candidate • ${remainingProb}% Prob</span>`;
                             candRow.appendChild(pHint);
                         }
                     });
@@ -3618,6 +3627,7 @@
     }
 
     // Intelligent Multi-Source Answer Cross-Referencing, Elimination & Consensus Engine
+    let communityShareDebounceTimer = null;
     function mergeAnswersIntoCache(subCode, newQuestions, sourceLabel = 'Imported') {
         let existing = getCachedAnswers(subCode) || [];
         let addedCount = 0;
@@ -3763,6 +3773,28 @@
         });
 
         setCachedAnswers(subCode, existing);
+
+        // Community Auto-Share: If user enabled auto-sharing (enabled by default),
+        // and new/confirmed/eliminated data was saved to local database,
+        // send anonymously to the community database relay so the world can benefit.
+        // Avoid pinging if the source is already from cloud sync ('Cloud-Verified', 'Cloud-Fallback', 'Cloud-Amauoed').
+        try {
+            const autoShareEnabled = localStorage.getItem('amaes_auto_community_share') !== 'false';
+            const isFromCloudSync = typeof sourceLabel === 'string' && sourceLabel.startsWith('Cloud-');
+            if (autoShareEnabled && !isFromCloudSync && (addedCount > 0 || confirmedCount > 0 || eliminatedCount > 0)) {
+                if (typeof dispatchCommunityContribution === 'function') {
+                    clearTimeout(communityShareDebounceTimer);
+                    communityShareDebounceTimer = setTimeout(() => {
+                        dispatchCommunityContribution(subCode, existing, { source: sourceLabel }).catch(err => {
+                            logDebug(`Community auto-share note: ${err.message}`);
+                        });
+                    }, 1500);
+                }
+            }
+        } catch (shareErr) {
+            logDebug(`Community dispatch check note: ${shareErr.message}`);
+        }
+
         return {
             total: existing.length,
             added: addedCount,
@@ -4075,8 +4107,31 @@
     async function autoFetchCloudAnswersIfMissing(code) {
         if (!code || code === 'DEFAULT' || code === 'GENERAL') return false;
         try {
+            // 1. Check local cache: If answers already exist locally, avoid unnecessary scraping or network calls
+            const existing = getCachedAnswers(code) || [];
+            if (existing.length > 0) {
+                return true;
+            }
+
+            // 2. Fetch from Cloud / GitHub community database
             const res = await syncAnswersFromCloud(code);
-            return res && res.count > 0;
+            if (res && res.count > 0) {
+                return true;
+            }
+
+            // 3. Fallback: If no answers found in cloud DB, check if there is a known/stored static AMAUOED URL
+            const amauoedUrl = getStoredAmauoedUrl(code);
+            const alreadyScraped = localStorage.getItem(`amaes_amauoed_scraped_${code}`);
+            if (amauoedUrl && !alreadyScraped && typeof loadAllAmauoedAnswers === 'function') {
+                logDebug(`Auto-scraping static AMAUOED URL for missing course ${code}: ${amauoedUrl}`);
+                const scraped = await loadAllAmauoedAnswers(amauoedUrl);
+                if (scraped && scraped.length > 0) {
+                    localStorage.setItem(`amaes_amauoed_scraped_${code}`, '1');
+                    mergeAnswersIntoCache(code, scraped, 'AMAUOED');
+                    return true;
+                }
+            }
+            return false;
         } catch (e) {
             logDebug(`autoFetchCloudAnswersIfMissing note for ${code}: ${e.message}`);
             return false;
@@ -5175,57 +5230,23 @@
                         </div>
                     </div>
 
-                    <!-- 3. Tips & Tricks: Hands-Free Shortcuts -->
-                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+                    <!-- 3. Zero-Friction Study (Quick Keys) -->
+                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 6px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <div style="font-weight: 700; color: #c4b5fd; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.zap} <span>Tips & Tricks (Hands-Free Quiz Speedrun)</span>
+                            <div style="font-weight: 700; color: #c4b5fd; font-size: 11.5px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.zap} <span>Instant Solvers & Shortcuts</span>
                             </div>
-                            <span style="font-size: 9.5px; color: var(--text-muted);">No Mouse Needed!</span>
+                            <span style="font-size: 9.5px; color: var(--text-muted);">Fully Automatic</span>
                         </div>
-
-                        <!-- Explanatory Pro-Tips Cards -->
-                        <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--text-secondary, #cbd5e1);">
-                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 5px 8px; border-radius: 5px;">
-                                <span style="font-weight: 800; color: #34d399; font-size: 10px; background: rgba(16,185,129,0.25); padding: 2px 6px; border-radius: 3px; flex-shrink: 0;">AUTO</span>
-                                <span><b>Auto-Next to Review:</b> Picking an answer auto-advances pages, submits to review, and immediately checks & harvests answers to your database!</span>
-                            </div>
-
-                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
-                                <div style="display: flex; gap: 3px; flex-shrink: 0;">
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">N</kbd>
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">Space</kbd>
-                                </div>
-                                <span><b>Next Page:</b> Instead of scrolling down to click "Next page", just press <b style="color: #fff;">N</b> or <b style="color: #fff;">Space</b>!</span>
-                            </div>
-
-                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
-                                <div style="display: flex; gap: 3px; flex-shrink: 0;">
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">1</kbd>
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">2</kbd>
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">3</kbd>
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">4</kbd>
-                                </div>
-                                <span><b>Pick Choices:</b> Instead of clicking radio circles, press <b style="color: #fff;">1 - 4</b> (or <b style="color: #fff;">A - D</b>) to select choices A, B, C, D!</span>
-                            </div>
-
-                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace; flex-shrink: 0;">C</kbd>
-                                <span><b>Copy for AI:</b> Press <b style="color: #fff;">C</b> to instantly copy question & choices with direct-answer prompt to AI.</span>
-                            </div>
-
-                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace; flex-shrink: 0;">V</kbd>
-                                <span><b>Paste AI Answer:</b> Press <b style="color: #fff;">V</b> to auto-detect and select the matching choice from your clipboard!</span>
-                            </div>
-
-                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
-                                <div style="display: flex; gap: 3px; flex-shrink: 0;">
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">P</kbd>
-                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">H</kbd>
-                                </div>
-                                <span><b>Pause / Highlight:</b> Press <b style="color: #fff;">P</b> to pause/resume auto-quiz, and <b style="color: #fff;">H</b> to re-highlight database answers.</span>
-                            </div>
+                        <div style="font-size: 11px; color: var(--text-secondary, #cbd5e1); line-height: 1.45;">
+                            Open any course or quiz. The toolkit <b>automatically highlights verified answers in green</b> (100% confidence) and marks known wrong choices in red.
+                        </div>
+                        <div style="display: flex; align-items: center; gap: 8px; font-size: 10px; color: var(--text-secondary, #cbd5e1); background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px; flex-wrap: wrap;">
+                            <span style="color: #cbd5e1;"><kbd style="background: var(--surface, #334155); color: #fff; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 9.5px; font-weight: 700;">N</kbd> / <kbd style="background: var(--surface, #334155); color: #fff; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 9.5px; font-weight: 700;">Space</kbd> Next</span>
+                            <span style="color: #cbd5e1;"><kbd style="background: var(--surface, #334155); color: #fff; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 9.5px; font-weight: 700;">1-4</kbd> Pick Choice</span>
+                            <span style="color: #cbd5e1;"><kbd style="background: var(--surface, #334155); color: #fff; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 9.5px; font-weight: 700;">C</kbd> Copy AI</span>
+                            <span style="color: #cbd5e1;"><kbd style="background: var(--surface, #334155); color: #fff; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 9.5px; font-weight: 700;">V</kbd> Paste AI</span>
+                            <span style="color: #cbd5e1;"><kbd style="background: var(--surface, #334155); color: #fff; padding: 1px 5px; border-radius: 3px; font-family: monospace; font-size: 9.5px; font-weight: 700;">P</kbd> Pause</span>
                         </div>
                     </div>
 
@@ -5646,18 +5667,10 @@
                         </label>
                     </div>
 
-                    <!-- Pro Tips & Tricks Card -->
-                    <div style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 6px; padding: 7px 9px; font-size: 10px; line-height: 1.45; color: var(--text-secondary); margin-top: 2px;">
-                        <div style="font-weight: 700; color: #c4b5fd; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
-                            <span style="display: flex; align-items: center; gap: 5px;">${ICONS.zap} <span>Tips & Tricks (Hands-Free)</span></span>
-                            <span style="font-size: 9px; color: var(--text-muted);">No Mouse Needed</span>
-                        </div>
-                        <div style="display: flex; flex-direction: column; gap: 3px;">
-                            <div>• <b>Auto-Next to Review:</b> Picking an answer automatically advances pages and submits to review to check & harvest verified data!</div>
-                            <div>• <b>Next Page:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">N</kbd> or <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">Space</kbd> instead of scrolling to click Next!</div>
-                            <div>• <b>Pick Choice:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">1</kbd>-<kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">4</kbd> (or <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">A</kbd>-<kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">D</kbd>) instead of clicking radio circles!</div>
-                            <div>• <b>AI Solve:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">C</kbd> to copy for AI, then <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">V</kbd> to auto-select the answer!</div>
-                        </div>
+                    <!-- Clean Zero-Setup Status Strip -->
+                    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--text-muted); background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px; margin-top: 2px;">
+                        <span style="display: flex; align-items: center; gap: 5px; color: #34d399; font-weight: 600;">${ICONS.checkCircle} <span>Answers highlight automatically</span></span>
+                        <span style="color: var(--text-secondary);">Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; font-family:monospace; font-size:9px;">[Keys]</kbd> for shortcuts</span>
                     </div>
                 </div>
 
@@ -6988,14 +7001,16 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                 });
 
                 if (questions.length > 0) {
-                    setCachedAnswers(subCode, questions);
-                    fetchBtnLabel.innerText = `Refresh Answers (${questions.length} cached)`;
+                    localStorage.setItem(`amaes_amauoed_scraped_${subCode}`, '1');
+                    const mergeResult = mergeAnswersIntoCache(subCode, questions, 'AMAUOED');
+                    fetchBtnLabel.innerText = `Refresh Answers (${mergeResult.total} cached)`;
                     updateTermCoverageUI(subCode);
-                    setLog(`Successfully cached <b>${questions.length}</b> questions from amauoed! Tip: Enable <b>Auto-Pick</b> or use <b>1-4 / Space</b> keys to solve fast.`, "var(--accent-green)");
+                    setLog(`Successfully cached <b>${questions.length}</b> questions from amauoed!`, "var(--accent-green)");
 
                     // If currently on a quiz, trigger highlight immediately!
                     if (checkIsQuizPage()) {
-                        const res = highlightQuizAnswers(questions, false);
+                        const updatedCache = getCachedAnswers(subCode);
+                        const res = highlightQuizAnswers(updatedCache, false);
                         setLog(`Matched & highlighted <b>${res.matched}/${res.total}</b> questions!`, "var(--accent-green)");
                     }
                 } else {

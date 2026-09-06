@@ -398,14 +398,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.2.3');
+    mockStorage.set('amaes_latest_version_seen', '1.2.4');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.2.2";
+    const currentVersion = "v1.2.3";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.3 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.4 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
@@ -586,6 +586,96 @@ test("Page Completeness & Summary Submit Gate: checks all questions answered bef
         { qNum: 2, status: "Not yet answered" }
     ];
     assert.strictEqual(shouldSubmitSummary(summaryIncomplete, true), false, "Summary with unanswered questions must pause!");
+});
+
+// --------------------------------------------------
+// 20. Choice Probability Badges & Wrong Choice Highlighting
+// --------------------------------------------------
+test("Choice Probability & Wrong Badges: accurately formats confidence weights and wrong choices", () => {
+    function formatSourceBadge(cand) {
+        const isDeduced = cand.deduced === true;
+        const isAmauoed = cand.source === 'amauoed';
+        const confSuffix = (cand.confirmations && cand.confirmations > 1) ? ` (${cand.confirmations}x)` : '';
+        return isDeduced ? `Deduced • 100% Prob${confSuffix}` : (isAmauoed ? `AMAUOED • 95% Prob${confSuffix}` : `Verified • 100% Prob${confSuffix}`);
+    }
+
+    function formatWrongBadge(matchedWrong) {
+        return matchedWrong.count > 1 ? `Wrong (${matchedWrong.count}x) • 0% Prob` : 'Wrong • 0% Prob';
+    }
+
+    function formatCandidateProb(uneliminatedCount) {
+        const remainingProb = Math.round(100 / uneliminatedCount);
+        return `Candidate • ${remainingProb}% Prob`;
+    }
+
+    // Verified correct DB
+    assert.strictEqual(formatSourceBadge({ verified: true, source: 'verified_db' }), "Verified • 100% Prob");
+    assert.strictEqual(formatSourceBadge({ verified: true, confirmations: 3, source: 'verified_db' }), "Verified • 100% Prob (3x)");
+
+    // AMAUOED catalog
+    assert.strictEqual(formatSourceBadge({ verified: false, source: 'amauoed' }), "AMAUOED • 95% Prob");
+    assert.strictEqual(formatSourceBadge({ verified: false, confirmations: 2, source: 'amauoed' }), "AMAUOED • 95% Prob (2x)");
+
+    // Deduced 100%
+    assert.strictEqual(formatSourceBadge({ deduced: true, verified: true }), "Deduced • 100% Prob");
+
+    // Confirmed wrong choices
+    assert.strictEqual(formatWrongBadge({ count: 1 }), "Wrong • 0% Prob");
+    assert.strictEqual(formatWrongBadge({ count: 4 }), "Wrong (4x) • 0% Prob");
+
+    // Elimination probabilities
+    assert.strictEqual(formatCandidateProb(2), "Candidate • 50% Prob");
+    assert.strictEqual(formatCandidateProb(3), "Candidate • 33% Prob");
+});
+
+// --------------------------------------------------
+// 21. Community Auto-Dispatch on Local Save
+// --------------------------------------------------
+test("Community Auto-Share on Local Save: triggers when new answers saved unless cloud-synced or disabled", () => {
+    function shouldDispatchToCommunity(autoShareSetting, sourceLabel, stats) {
+        const autoShareEnabled = autoShareSetting !== 'false';
+        const isFromCloudSync = typeof sourceLabel === 'string' && sourceLabel.startsWith('Cloud-');
+        const hasFreshData = (stats.added > 0 || stats.confirmed > 0 || stats.eliminated > 0);
+        return autoShareEnabled && !isFromCloudSync && hasFreshData;
+    }
+
+    // Default ON: fresh review answers trigger community dispatch
+    assert.strictEqual(shouldDispatchToCommunity('true', 'review_screen', { added: 1, confirmed: 0, eliminated: 0 }), true);
+    // Freshly deduced answers trigger community dispatch
+    assert.strictEqual(shouldDispatchToCommunity('true', 'Elimination Deduction', { added: 1, confirmed: 0, eliminated: 0 }), true);
+    // Freshly scraped AMAUOED answers trigger community dispatch
+    assert.strictEqual(shouldDispatchToCommunity('true', 'AMAUOED', { added: 10, confirmed: 0, eliminated: 0 }), true);
+    // Suppressed if downloaded from cloud (avoid echo loops)
+    assert.strictEqual(shouldDispatchToCommunity('true', 'Cloud-Verified', { added: 5, confirmed: 0, eliminated: 0 }), false);
+    assert.strictEqual(shouldDispatchToCommunity('true', 'Cloud-Amauoed', { added: 5, confirmed: 0, eliminated: 0 }), false);
+    // Suppressed if user toggled off auto-share
+    assert.strictEqual(shouldDispatchToCommunity('false', 'review_screen', { added: 5, confirmed: 0, eliminated: 0 }), false);
+    // Suppressed if no changes occurred
+    assert.strictEqual(shouldDispatchToCommunity('true', 'review_screen', { added: 0, confirmed: 0, eliminated: 0 }), false);
+});
+
+// --------------------------------------------------
+// 22. AMAUOED Static Scraping Gating
+// --------------------------------------------------
+test("AMAUOED Static Scraping Gate: avoids redundant scraping if local cache or prior scrape exists", () => {
+    function shouldScrapeAmauoed(localCount, hasAmauoedUrl, alreadyScrapedFlag) {
+        // If local cache already has answers, static link re-scraping is redundant
+        if (localCount > 0) return false;
+        // If no link exists, cannot scrape
+        if (!hasAmauoedUrl) return false;
+        // If already scraped once, static content does not change
+        if (alreadyScrapedFlag) return false;
+        return true;
+    }
+
+    // 0 local answers, valid link, not yet scraped -> SHOULD scrape
+    assert.strictEqual(shouldScrapeAmauoed(0, true, false), true);
+    // Local answers exist -> DO NOT scrape
+    assert.strictEqual(shouldScrapeAmauoed(25, true, false), false);
+    // Already scraped -> DO NOT scrape again
+    assert.strictEqual(shouldScrapeAmauoed(0, true, true), false);
+    // No link known -> cannot scrape
+    assert.strictEqual(shouldScrapeAmauoed(0, false, false), false);
 });
 
 console.log("\n==================================================");
