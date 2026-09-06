@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.1.1
+// @version      1.1.2
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.1.1";
+    const SCRIPT_VERSION = "v1.1.2";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -6809,6 +6809,8 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                     }, 4000);
                 });
             };
+        }
+
         const btnBarHarvestGrades = document.getElementById('btn-bar-harvest-grades');
         if (btnBarHarvestGrades) {
             btnBarHarvestGrades.onclick = () => {

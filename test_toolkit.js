@@ -416,6 +416,17 @@ test("Update Checker Caching: cached known update bypasses refetching and opens 
     assert.strictEqual(openedUrl, SCRIPT_RAW_URL, "Clicking check with cached update must immediately direct to install URL!");
 });
 
+test("Userscript Syntax Integrity: ensures amaes-moodle-toolkit.user.js parses with zero syntax errors", () => {
+    const fs = require('fs');
+    const vm = require('vm');
+    const path = require('path');
+    const scriptPath = path.join(__dirname, 'amaes-moodle-toolkit.user.js');
+    const scriptCode = fs.readFileSync(scriptPath, 'utf8');
+    assert.doesNotThrow(() => {
+        new vm.Script(scriptCode);
+    }, "Userscript must parse without syntax errors!");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
