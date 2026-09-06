@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.5
+// @version      1.3.6
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.5";
+    const SCRIPT_VERSION = "v1.3.6";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2843,7 +2843,7 @@
                 el.style.backgroundColor = '';
                 el.style.borderRadius = '';
             });
-            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint').forEach(b => b.remove());
+            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-select-elim-hint').forEach(b => b.remove());
 
             // Compile all eliminated wrong choices known for this question
             const allWrongList = [];
@@ -3280,22 +3280,74 @@
                         const options = Array.from(selectInput.options);
                         const normTarget = normalizeChoice(targetAns);
 
+                        // 1. Mark eliminated options in dropdown
+                        const eliminatedOptions = [];
+                        options.forEach(opt => {
+                            if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return;
+                            const optClean = opt.text.replace(/\s*\(❌ Eliminated\)/g, '').trim();
+                            const optNorm = normalizeChoice(optClean);
+                            const isWrong = allWrongList.some(w => w.norm === optNorm || unscriptDigits(w.norm) === unscriptDigits(optNorm));
+                            if (isWrong) {
+                                if (!opt.text.includes('❌ Eliminated')) {
+                                    opt.text = `${optClean} (❌ Eliminated)`;
+                                }
+                                opt.style.color = '#ef4444';
+                                opt.style.backgroundColor = 'rgba(239, 68, 68, 0.1)';
+                                eliminatedOptions.push(optClean);
+                            }
+                        });
+
+                        if (eliminatedOptions.length > 0) {
+                            let elimHint = que.querySelector(`.amaes-select-elim-hint[data-select-idx="${idx}"]`);
+                            if (!elimHint) {
+                                elimHint = document.createElement('div');
+                                elimHint.className = 'amaes-select-elim-hint';
+                                elimHint.setAttribute('data-select-idx', String(idx));
+                                elimHint.style.cssText = `font-size: 11px; margin-top: 4px; padding: 4px 8px; background: rgba(239, 68, 68, 0.12); border-left: 3px solid #ef4444; color: #ef4444; border-radius: 4px; font-weight: 600;`;
+                                elimHint.innerHTML = `${ICONS.xCircle} <span>Eliminated: <b>${escapeHtml(eliminatedOptions.join(', '))}</b> (Do not pick)</span>`;
+                                if (selectInput.parentElement && selectInput.parentElement !== que) {
+                                    selectInput.parentElement.appendChild(elimHint);
+                                } else {
+                                    selectInput.insertAdjacentElement('afterend', elimHint);
+                                }
+                            }
+                        }
+
+                        // 2. Find matching option excluding eliminated ones
                         let matchedOption = options.find(opt => {
                             if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
-                            const normOpt = normalizeChoice(opt.text);
+                            const optClean = opt.text.replace(/\s*\(❌ Eliminated\)/g, '').trim();
+                            const normOpt = normalizeChoice(optClean);
+                            if (allWrongList.some(w => w.norm === normOpt || unscriptDigits(w.norm) === unscriptDigits(normOpt))) return false;
                             return normOpt === normTarget || (normTarget.length > 2 && normOpt.includes(normTarget)) || (normOpt.length > 2 && targetAns.length > 2 && normTarget.includes(normOpt));
                         });
 
-                        // Fallback: if no direct match, try matching any candidate answer
+                        // Fallback: if no direct match, try matching any candidate answer (excluding eliminated)
                         if (!matchedOption && candAnswers.length > 0) {
                             matchedOption = options.find(opt => {
                                 if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
-                                const normOpt = normalizeChoice(opt.text);
+                                const optClean = opt.text.replace(/\s*\(❌ Eliminated\)/g, '').trim();
+                                const normOpt = normalizeChoice(optClean);
+                                if (allWrongList.some(w => w.norm === normOpt || unscriptDigits(w.norm) === unscriptDigits(normOpt))) return false;
                                 return candAnswers.some(ca => {
                                     const nca = normalizeChoice(ca);
                                     return normOpt === nca || (nca.length > 2 && normOpt.includes(nca)) || (normOpt.length > 2 && nca.includes(normOpt));
                                 });
                             });
+                        }
+
+                        // 3. Deduction by elimination: if all options except 1 are eliminated, pick remaining
+                        const validOptions = options.filter(opt => {
+                            if (!opt.value || opt.value === '0' || opt.text.toLowerCase().includes('choose')) return false;
+                            const optClean = opt.text.replace(/\s*\(❌ Eliminated\)/g, '').trim();
+                            const optNorm = normalizeChoice(optClean);
+                            return !allWrongList.some(w => w.norm === optNorm || unscriptDigits(w.norm) === unscriptDigits(normOpt));
+                        });
+
+                        let isDeducedSelect = false;
+                        if (!matchedOption && validOptions.length === 1) {
+                            matchedOption = validOptions[0];
+                            isDeducedSelect = true;
                         }
 
                         if (matchedOption) {
@@ -3309,11 +3361,14 @@
                                 hint = document.createElement('div');
                                 hint.className = 'amaes-select-hint';
                                 hint.setAttribute('data-select-idx', String(idx));
+                                const displayTitle = isDeducedSelect ? 'Deduced • 100% Prob:' : sourceTitle;
+                                const cleanText = matchedOption.text.replace(/\s*\(❌ Eliminated\)/g, '').trim();
+                                const activeColor = isDeducedSelect ? '#f59e0b' : sourceColor;
                                 hint.innerHTML = `
                                     <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
-                                        <span><span style="color:${sourceColor}; font-weight:700;">${sourceTitle}</span> <b>${matchedOption.text}</b></span>
+                                        <span><span style="color:${activeColor}; font-weight:700;">${displayTitle}</span> <b>${cleanText}</b></span>
                                         <button type="button" class="amaes-select-btn" style="
-                                            background: ${sourceColor};
+                                            background: ${activeColor};
                                             color: #ffffff;
                                             border: none;
                                             border-radius: 4px;

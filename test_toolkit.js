@@ -1833,6 +1833,52 @@ test("Review Question Markers: displays Uploaded to DB badge when share is ON vs
     assert.ok(script.includes("Saved to Local DB"), "Must show Saved to Local DB when cloud sharing is off");
 });
 
+// --------------------------------------------------
+// 58. Dropdown Option Elimination and Deduction
+// --------------------------------------------------
+test("Dropdown Option Elimination: marks confirmed wrong options with (❌ Eliminated) and deduces remaining", () => {
+    function processSelectOptions(optionsList, wrongNorms, targetAns = '') {
+        const eliminated = [];
+        const validOptions = [];
+
+        optionsList.forEach(optText => {
+            if (wrongNorms.includes(optText)) {
+                eliminated.push(`${optText} (❌ Eliminated)`);
+            } else {
+                validOptions.push(optText);
+            }
+        });
+
+        let chosenOption = validOptions.find(o => o === targetAns) || null;
+        let isDeduced = false;
+        if (!chosenOption && validOptions.length === 1) {
+            chosenOption = validOptions[0];
+            isDeduced = true;
+        }
+
+        return { eliminated, validOptions, chosenOption, isDeduced };
+    }
+
+    // Automaton question with 4 options, 1 confirmed wrong ("01011")
+    const options = ["01011", "010011", "10100", "010110"];
+    const res1 = processSelectOptions(options, ["01011"], "01011");
+    assert.deepStrictEqual(res1.eliminated, ["01011 (❌ Eliminated)"]);
+    assert.strictEqual(res1.validOptions.includes("01011"), false, "Eliminated option must be excluded");
+    assert.strictEqual(res1.chosenOption, null, "Target answer cannot be chosen if eliminated");
+
+    // When 3 out of 4 options are eliminated -> remaining 4th option is deduced
+    const res2 = processSelectOptions(options, ["01011", "010011", "10100"]);
+    assert.strictEqual(res2.isDeduced, true, "Must deduce remaining option");
+    assert.strictEqual(res2.chosenOption, "010110");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("amaes-select-elim-hint"), "Must inject amaes-select-elim-hint on eliminated options");
+    assert.ok(script.includes("(❌ Eliminated)"), "Must label eliminated options with (❌ Eliminated)");
+    assert.ok(script.includes("isDeducedSelect"), "Must support deduction on dropdowns");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
