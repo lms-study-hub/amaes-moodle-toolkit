@@ -30,7 +30,44 @@
     const SCRIPT_VERSION = "v1.2.5";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
-    const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
+
+    // Dynamic semester path detector (never hardcode e.g. /2612/ since term codes change every semester)
+    function getSemesterBasePath() {
+        if (typeof window !== 'undefined' && window.location) {
+            const m = window.location.pathname.match(/^\/(\d{3,5})\//);
+            if (m) {
+                const path = `/${m[1]}/`;
+                try {
+                    sessionStorage.setItem('amaes_detected_sem_path', path);
+                    localStorage.setItem('amaes_detected_sem_path', path);
+                } catch (_) {}
+                return path;
+            }
+            const anyDashLink = typeof document !== 'undefined' ? document.querySelector('a[href*="/my/courses.php"], a[href*="/my/"], a[href*="/course/"]') : null;
+            if (anyDashLink) {
+                const href = anyDashLink.getAttribute('href') || '';
+                const lm = href.match(/\/(\d{3,5})\//);
+                if (lm) {
+                    const path = `/${lm[1]}/`;
+                    try {
+                        sessionStorage.setItem('amaes_detected_sem_path', path);
+                        localStorage.setItem('amaes_detected_sem_path', path);
+                    } catch (_) {}
+                    return path;
+                }
+            }
+            try {
+                const saved = sessionStorage.getItem('amaes_detected_sem_path') || localStorage.getItem('amaes_detected_sem_path');
+                if (saved) return saved;
+            } catch (_) {}
+        }
+        return '/';
+    }
+
+    function getSemesterCoursesUrl() {
+        const origin = (typeof window !== 'undefined' && window.location && window.location.origin) ? window.location.origin : 'https://semestral.amaes.com';
+        return `${origin}${getSemesterBasePath()}my/courses.php`;
+    }
 
     // DEBUG SWITCH: Toggle to enable/disable the debug export button
     const DEBUG_MODE = true;
@@ -447,14 +484,15 @@
     let autoHighlightQuiz = localStorage.getItem('amaes_auto_highlight_quiz') !== 'false'; // default true
     let autoCopyQuizForAI = localStorage.getItem('amaes_auto_copy_ai') !== 'false'; // default true
     let autoQuizMode = localStorage.getItem('amaes_auto_quiz_mode') === 'true'; // default false (Master autonomous switch)
-    let quizPersonality = localStorage.getItem('amaes_quiz_personality') || 'passive'; // 'passive' | 'aggressive'
+    let quizPersonality = 'passive'; // Default safe Co-Pilot
     let autoPickQuiz = localStorage.getItem('amaes_auto_pick_quiz') === 'true'; // default false (Safe companion mode)
-    let autoNextQuiz = localStorage.getItem('amaes_auto_next_quiz') !== 'false'; // default true: auto-next when questions on page are answered
-    let autoSubmitQuiz = localStorage.getItem('amaes_auto_submit_quiz') === 'true'; // default false: safe manual review before final submission
+    let autoNextQuiz = localStorage.getItem('amaes_auto_next_quiz') === 'true'; // default false: safe manual progression
+    const autoSubmitQuiz = false; // Permanently disabled by design: safe manual review before final submission
     let autoNextTimer = null;
     let pageLoadSolverTimer = null;
     let smartSkipQuiz = localStorage.getItem('amaes_smart_skip_quiz') !== 'false'; // default true: skip answered questions
     let autoCloudSync = localStorage.getItem('amaes_auto_cloud_sync') !== 'false'; // default true
+    let autoScrapeAmauoed = localStorage.getItem('amaes_auto_scrape_amauoed') !== 'false'; // default true
     let autoHarvestGrades = localStorage.getItem('amaes_auto_harvest_grades') !== 'false'; // default true: auto-harvest past quizzes on course/grades open
     let cloudDbBaseUrl = localStorage.getItem('amaes_cloud_db_url') || 'https://raw.githubusercontent.com/lms-study-hub/database/main/data/verified/';
     const CLOUD_DB_FALLBACK_URL = 'https://raw.githubusercontent.com/lms-study-hub/database/main/data/';
@@ -462,6 +500,7 @@
     const DEFAULT_COMMUNITY_RELAY_URL = 'https://amaes-community-relay.workers.dev';
     let communityRelayUrl = localStorage.getItem('amaes_community_relay_url') || DEFAULT_COMMUNITY_RELAY_URL;
     let aiPromptHint = localStorage.getItem('amaes_ai_prompt_hint') !== 'false'; // default true for clean a/b/c/d answers
+    let copyIncludeConfidence = localStorage.getItem('amaes_copy_include_confidence') !== 'false'; // default true: include DB answer hints & confidence
     let showInQuestionAiBtns = localStorage.getItem('amaes_show_in_question_ai_btns') !== 'false'; // default true
     let enableKeyboardShortcuts = localStorage.getItem('amaes_enable_hotkeys') !== 'false'; // default true: N, Space, 1-4, C, P, H
     let autoCommunityShare = localStorage.getItem('amaes_auto_community_share') !== 'false'; // default true: auto-share on review / harvest
@@ -554,16 +593,17 @@
         localStorage.setItem('amaes_auto_quiz_mode', 'false');
         localStorage.setItem('amaes_quiz_personality', 'passive');
         localStorage.setItem('amaes_auto_pick_quiz', 'false');
-        localStorage.setItem('amaes_auto_next_quiz', 'true');
-        localStorage.setItem('amaes_auto_submit_quiz', 'false');
+        localStorage.setItem('amaes_auto_next_quiz', 'false');
         localStorage.setItem('amaes_auto_dl_json', 'false');
         localStorage.setItem('amaes_auto_push_github', 'false');
         localStorage.setItem('amaes_auto_copy_search', 'true');
         localStorage.setItem('amaes_auto_cloud_sync', 'true');
+        localStorage.setItem('amaes_auto_scrape_amauoed', 'true');
         localStorage.setItem('amaes_auto_harvest_grades', 'true');
         localStorage.setItem('amaes_enable_hotkeys', 'true');
 
         localStorage.setItem('amaes_auto_highlight_quiz', 'true');
+        localStorage.setItem('amaes_copy_include_confidence', 'true');
         localStorage.setItem('amaes_auto_copy_ai', 'true');
         localStorage.setItem('amaes_smart_skip_quiz', 'true');
         localStorage.setItem('amaes_show_in_question_ai_btns', 'true');
@@ -574,10 +614,11 @@
         autoQuizMode = false;
         quizPersonality = 'passive';
         autoPickQuiz = false;
-        autoNextQuiz = true;
-        autoSubmitQuiz = false;
+        autoNextQuiz = false;
         smartSkipQuiz = true;
         autoHighlightQuiz = true;
+        copyIncludeConfidence = true;
+        autoScrapeAmauoed = true;
         autoCopyQuizForAI = true;
         autoCopyKeyword = true;
         autoCloudSync = true;
@@ -593,9 +634,11 @@
             if (el) el.checked = val;
         };
         updateCheck('chk-auto-cloud-sync', true);
+        updateCheck('chk-auto-scrape-amauoed', true);
         updateCheck('chk-auto-community-share', true);
         updateCheck('chk-auto-harvest-grades', true);
         updateCheck('chk-auto-hl-quiz', true);
+        updateCheck('chk-copy-confidence', true);
         updateCheck('chk-auto-copy-ai', true);
         updateCheck('chk-smart-skip', true);
         updateCheck('chk-auto-min-quiz', true);
@@ -605,8 +648,7 @@
         updateCheck('chk-ai-prompt-hint', true);
         updateCheck('chk-keyboard-shortcuts', true);
         updateCheck('chk-auto-pick', false);
-        updateCheck('chk-auto-next', true);
-        updateCheck('chk-auto-submit', false);
+        updateCheck('chk-auto-next', false);
         updateCheck('chk-auto-dl-json', false);
         updateCheck('chk-auto-push-github', false);
 
@@ -1797,49 +1839,7 @@
 
             const nextBtn = findQuizNextButton();
 
-            // =====================================================================
-            // PERSONALITY 1: AGGRESSIVE (Speedrun: Auto-Pick, Skip Unknown, Auto-Next)
-            // =====================================================================
-            if (quizPersonality === 'aggressive') {
-                if (unverifiedQuestions.length > 0) {
-                    setLog(`<b>Speedrun Mode:</b> Skipped ${unverifiedQuestions.length} unknown question(s).`, "var(--accent-amber)");
-                    showToast(`Speedrun: Skipped ${unverifiedQuestions.length} unknown question(s)`, 1800);
-                    unverifiedQuestions.forEach(que => {
-                        que.style.outline = '2px dashed var(--accent-amber, #f59e0b)';
-                        que.style.borderRadius = '8px';
-                    });
-                } else {
-                    setLog(`<b>Speedrun Mode:</b> All ${res.total} question(s) verified & picked!`, "var(--accent-green)");
-                }
-
-                // In Aggressive mode, ALWAYS auto-advance even if questions were skipped
-                if (nextBtn) {
-                    const btnText = (nextBtn.value || nextBtn.innerText || '').toLowerCase();
-                    const isFinish = btnText.includes('finish') || btnText.includes('submit');
-
-                    clearTimeout(autoNextTimer);
-                    if (isFinish) {
-                        setLog(`<b>Speedrun:</b> Finishing attempt in <b>1.0s</b>...`, "var(--accent-green)");
-                        showToast("Finishing attempt...", 2500);
-                    } else {
-                        setLog(`<b>Speedrun:</b> Auto-Next in <b>1.0s</b>...`, "var(--accent-blue)");
-                    }
-
-                    autoNextTimer = setTimeout(() => {
-                        if (!autoQuizMode) return;
-                        clickQuizNextButton(nextBtn);
-                    }, 1000);
-                } else {
-                    setLog("Next page button not found.", "var(--accent-pink)");
-                }
-                isSolverRunning = false;
-                return;
-            }
-
-            // =====================================================================
-            // PERSONALITY 2: PASSIVE (Interactive Co-Pilot: Auto-Pick & Next IF Known, WAIT if Unknown)
-            // =====================================================================
-            if (quizPersonality === 'passive') {
+            // Co-Pilot: Auto-Pick & Next IF Known, WAIT if Unknown
                 // Case A: 100% of questions on this page were verified & answered by database!
                 if (unverifiedQuestions.length === 0 && res.total > 0) {
                     setLog(`All <b>${res.total}</b> question(s) verified & picked!`, "var(--accent-green)");
@@ -1974,7 +1974,6 @@
 
                 isSolverRunning = false;
                 return;
-            }
         } catch (err) {
             logDebug(`Auto-Solver Error: ${err.message}`);
             console.error("Auto-Solver Exception:", err);
@@ -1986,58 +1985,7 @@
     // Auto-Mark as Done / Submit Handler for Quiz Summary Page (/mod/quiz/summary.php)
     function handleQuizSummaryAutoSubmit() {
         if (!checkIsQuizSummaryPage()) return;
-
-        // Auto-submit if autoSubmitQuiz is enabled
-        if (!autoSubmitQuiz) {
-            logDebug("Quiz Summary auto-submit paused because Auto-Submit Quiz is disabled.");
-            return;
-        }
-
-        // Safety check: ensure questions were answered in summary table
-        const summaryRows = Array.from(document.querySelectorAll('.quizsummarytable tr, #region-main .summarytable tr'));
-        const incompleteRows = summaryRows.filter(tr => {
-            const statusCell = tr.querySelector('.status');
-            return statusCell && /not yet answered|not answered|incomplete/i.test(statusCell.innerText);
-        });
-
-        if (incompleteRows.length > 0 && quizPersonality !== 'aggressive' && !autoQuizMode) {
-            setLog(`<b>Quiz Summary:</b> ${incompleteRows.length} question(s) not answered yet. Paused for review.`, "var(--accent-amber)");
-            showToast(`Paused: ${incompleteRows.length} unanswered question(s). Click Submit manually if ready.`, 4000);
-            return;
-        }
-
-        const submitBtn = document.querySelector(
-            '.btn-finishattempt, input[value*="Submit all and finish"], button[type="submit"][name="finishattempt"], form[action*="summary.php"] button[type="submit"], #responseform button[type="submit"]'
-        );
-
-        if (submitBtn) {
-            setLog("<b>Auto-Next to Review:</b> Submitting quiz attempt in <b>1.0s</b> to open review...", "var(--accent-green)");
-            showToast("All answers saved! Submitting to review in 1s...", 2500);
-
-            setTimeout(() => {
-                if (!autoSubmitQuiz) return;
-                submitBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                submitBtn.click();
-
-                // Handle Moodle confirmation modal dialogue
-                const confirmInterval = setInterval(() => {
-                    if (!autoSubmitQuiz) {
-                        clearInterval(confirmInterval);
-                        return;
-                    }
-                    const modalBtn = document.querySelector(
-                        '.moodle-dialogue-confirm .btn-primary, .modal.show .btn-primary, input.btn-primary[value*="Submit all"], div[role="dialog"] button.btn-primary, .modal-footer .btn-primary'
-                    );
-                    if (modalBtn) {
-                        clearInterval(confirmInterval);
-                        setLog("Confirming final submission to reach review screen...", "var(--accent-green)");
-                        modalBtn.click();
-                    }
-                }, 300);
-
-                setTimeout(() => clearInterval(confirmInterval), 6000);
-            }, 1000);
-        }
+        logDebug("Quiz Summary reached. Student reviews at their own pace (Auto-submit disabled by design).");
     }
 
     // Unified Synchronizer for UI states (Floating HUD + Panel Button)
@@ -2071,8 +2019,8 @@
         localStorage.setItem('amaes_auto_quiz_mode', autoQuizMode ? 'true' : 'false');
 
         if (autoQuizMode) {
-            showToast(`Auto-Quiz Started (${quizPersonality.toUpperCase()})`);
-            setLog(`Auto-Quiz <b>started</b> in <b>${quizPersonality.toUpperCase()}</b> mode!`, "var(--accent-green)");
+            showToast("Auto-Quiz Started (Co-Pilot)");
+            setLog("Auto-Quiz <b>started</b> in <b>Co-Pilot</b> mode!", "var(--accent-green)");
             if (checkIsQuizAttemptPage()) runAutoQuizSolver(true);
             if (checkIsQuizSummaryPage()) handleQuizSummaryAutoSubmit();
         } else {
@@ -2115,7 +2063,7 @@
             left: 22px;
             z-index: 99998;
             background: var(--surface, #1e293b);
-            border: 1.5px solid ${autoQuizMode ? (quizPersonality === 'aggressive' ? '#ec4899' : '#3b82f6') : 'var(--border, #334155)'};
+            border: 1.5px solid ${autoQuizMode ? '#3b82f6' : 'var(--border, #334155)'};
             border-radius: 30px;
             padding: 6px 14px;
             box-shadow: 0 6px 24px rgba(0,0,0,0.45);
@@ -2128,15 +2076,13 @@
             backdrop-filter: blur(8px);
         `;
 
-        const isAgg = quizPersonality === 'aggressive';
-
         hud.innerHTML = `
             <!-- Auto-Quiz Status -->
             <div style="display: flex; align-items: center; gap: 6px;">
-                <span id="hud-pulse-dot" style="width: 8px; height: 8px; border-radius: 50%; background: ${autoQuizMode ? (isAgg ? '#ec4899' : '#3b82f6') : '#64748b'}; box-shadow: 0 0 8px ${autoQuizMode ? (isAgg ? '#ec4899' : '#3b82f6') : 'transparent'};"></span>
+                <span id="hud-pulse-dot" style="width: 8px; height: 8px; border-radius: 50%; background: ${autoQuizMode ? '#3b82f6' : '#64748b'}; box-shadow: 0 0 8px ${autoQuizMode ? '#3b82f6' : 'transparent'};"></span>
                 <span style="font-weight: 700;">Auto-Quiz:</span>
-                <span id="hud-mode-text" style="color: ${autoQuizMode ? (isAgg ? 'var(--accent-pink, #ec4899)' : 'var(--accent-blue, #3b82f6)') : '#94a3b8'}; font-weight: 700;">
-                    ${autoQuizMode ? (isAgg ? 'Speedrun' : 'Co-Pilot') : 'Paused'}
+                <span id="hud-mode-text" style="color: ${autoQuizMode ? 'var(--accent-blue, #3b82f6)' : '#94a3b8'}; font-weight: 700;">
+                    ${autoQuizMode ? 'Co-Pilot' : 'Paused'}
                 </span>
             </div>
 
@@ -3021,6 +2967,128 @@
         return { count, targetCategory };
     }
 
+    // Auto-Highlight unanswered / missing quizzes on Grades or Course pages
+    function highlightMissingOrUnansweredQuizzes() {
+        clearAllHighlights();
+
+        const isGrades = typeof window !== 'undefined' && window.location.pathname.includes('/grade/report/user/index.php');
+        const isCourse = checkIsCoursePage();
+
+        if (!isGrades && !isCourse) {
+            return { count: 0, error: 'Not on a course or grades page', message: 'Open a course or Grades page first to highlight missing quizzes.' };
+        }
+
+        let count = 0;
+        let firstScrolled = false;
+
+        if (isGrades) {
+            const rows = Array.from(document.querySelectorAll('.user-grade tr, .generaltable tr, table.table tr, tr'));
+            rows.forEach(r => {
+                const quizLink = r.querySelector('a[href*="/mod/quiz/"], a[href*="quiz"], a.gradeitemheader')
+                              || r.querySelector('.column-itemname a, th a, td:first-child a');
+                if (!quizLink) return;
+
+                const href = quizLink.getAttribute('href') || quizLink.href || '';
+                const rawTitle = quizLink.innerText.trim();
+                if (!rawTitle || (!href.includes('quiz') && !r.innerText.toLowerCase().includes('quiz'))) return;
+
+                const rowText = r.innerText || '';
+                if (rowText.includes('( Empty )') || rowText.includes('(Empty)')) return;
+
+                // Check grade
+                const gradeCell = r.querySelector('.column-grade, [headers*="grade"], td.grade');
+                const pctCell = r.querySelector('.column-percentage, [headers*="percentage"]');
+                let hasGrade = false;
+                if (gradeCell) {
+                    const gText = gradeCell.innerText.trim();
+                    if (gText && gText !== '-' && gText !== '–' && /\d/.test(gText)) {
+                        hasGrade = true;
+                    }
+                }
+                if (!hasGrade && pctCell) {
+                    const pText = pctCell.innerText.trim();
+                    if (pText && pText !== '-' && pText !== '–' && !pText.includes('0.00') && /\d/.test(pText)) {
+                        hasGrade = true;
+                    }
+                }
+
+                if (!hasGrade) {
+                    count++;
+                    r.classList.add('amaes-highlighted-item');
+                    r.style.background = 'rgba(245, 158, 11, 0.18)';
+                    r.style.outline = '2px solid #f59e0b';
+
+                    const badge = document.createElement('span');
+                    badge.className = 'amaes-type-badge';
+                    badge.innerText = '⚠️ UNATTEMPTED';
+                    badge.style.cssText = `
+                        background: #f59e0b;
+                        color: #000;
+                        font-size: 9px;
+                        font-weight: 800;
+                        padding: 1px 5px;
+                        border-radius: 3px;
+                        margin-left: 6px;
+                        display: inline-block;
+                        vertical-align: middle;
+                    `;
+                    quizLink.appendChild(badge);
+
+                    if (!firstScrolled) {
+                        r.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        firstScrolled = true;
+                    }
+                }
+            });
+        } else if (isCourse) {
+            const activities = Array.from(document.querySelectorAll(
+                'li.activity, .activity-item, .course-section .activity, div[data-region="activity-card"]'
+            ));
+            activities.forEach(el => {
+                const cls = classifyActivity(el);
+                if (cls.type !== 'quiz') return;
+
+                // Check if activity is already marked completed
+                const isCompleted = el.classList.contains('completed') ||
+                                    el.querySelector('.iscompleted, .badge-success, .text-success, button[aria-checked="true"], button[data-toggled="true"]');
+                if (!isCompleted) {
+                    count++;
+                    el.classList.add('amaes-highlighted-item');
+                    el.style.position = 'relative';
+                    el.style.outline = '2px solid #f59e0b';
+                    el.style.borderRadius = '8px';
+                    el.style.boxShadow = '0 0 12px rgba(245, 158, 11, 0.4)';
+
+                    const badge = document.createElement('span');
+                    badge.className = 'amaes-type-badge';
+                    badge.innerText = '⚠️ MISSING / PENDING';
+                    badge.style.cssText = `
+                        position: absolute;
+                        top: 6px;
+                        right: 6px;
+                        background: #f59e0b;
+                        color: #000000;
+                        font-size: 9px;
+                        font-weight: 800;
+                        padding: 2px 6px;
+                        border-radius: 4px;
+                        z-index: 10;
+                        pointer-events: none;
+                        text-transform: uppercase;
+                    `;
+                    el.appendChild(badge);
+
+                    if (!firstScrolled) {
+                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        firstScrolled = true;
+                    }
+                }
+            });
+        }
+
+        return { count, isGrades, isCourse };
+    }
+
     // ==========================================
     // Debug Report Generator
     // ==========================================
@@ -3422,7 +3490,7 @@
         if (data.choices && data.choices.length > 0) {
             output += data.choices.join('\n');
 
-            if (detectedAnswer) {
+            if (detectedAnswer && copyIncludeConfidence) {
                 output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
             }
 
@@ -5123,19 +5191,26 @@
     // ==========================================
 
     function showWelcomeOnboardingModal(force = false) {
-        if (!force && (!isUserLoggedIn() || localStorage.getItem('amaes_welcome_dismissed') === 'true')) {
+        if (!force && localStorage.getItem('amaes_welcome_dismissed') === 'true') {
             return;
         }
 
         const existing = document.getElementById('amaes-welcome-modal');
         if (existing) existing.remove();
 
+        const loggedIn = isUserLoggedIn();
         const courseInfo = detectCourseInfo();
         const currentSubCode = (courseInfo && courseInfo.subjectCode && courseInfo.subjectCode !== 'GENERAL' && courseInfo.subjectCode !== 'DEFAULT') ? courseInfo.subjectCode : null;
         const dashCourses = detectDashboardCourses();
 
         let statusHtml = '';
-        if (currentSubCode) {
+        if (!loggedIn) {
+            statusHtml = `
+                <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3); border-radius: 6px; padding: 7px 10px; font-size: 10.5px; color: #fcd34d;">
+                    <b>Status:</b> Please log into your AMAES account. Once logged in, the toolkit will automatically detect your semester courses and sync answers!
+                </div>
+            `;
+        } else if (currentSubCode) {
             statusHtml = `
                 <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 6px 10px; font-size: 10.5px; display: flex; align-items: center; justify-content: space-between;">
                     <span>Current Subject: <b style="color: #34d399;">${currentSubCode}</b></span>
@@ -5157,7 +5232,7 @@
         } else {
             statusHtml = `
                 <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 6px 10px; font-size: 10.5px; color: #fcd34d;">
-                    <b>Next Step:</b> Open any course from your dashboard — the toolkit will auto-sync verified answers immediately!
+                    <b>Next Step:</b> Open any course from your <a href="${getSemesterCoursesUrl()}" style="color: #93c5fd; text-decoration: underline;">Dashboard</a> — the toolkit will auto-sync verified answers immediately!
                 </div>
             `;
         }
@@ -5337,7 +5412,11 @@
                             ${ICONS.github} <span>Repo</span>
                         </a>
                     </div>
-                    ${dashCourses.length > 0 ? `
+                    ${!loggedIn ? `
+                        <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                            ${ICONS.checkCircle} <span>Got It, Continue to Login</span>
+                        </button>
+                    ` : dashCourses.length > 0 ? `
                         <button id="btn-got-it-welcome" class="amaes-btn amaes-btn-green" style="padding: 6px 16px; font-size: 11.5px; font-weight: 700; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
                             ${ICONS.zap} <span>Got It & Auto-Sync My Courses</span>
                         </button>
@@ -5538,7 +5617,7 @@
                         ${ICONS.help}
                     </button>
 
-                    <a id="amaes-home-btn" class="amaes-icon-btn" href="${HOME_URL}" title="Dashboard (My Courses)">
+                    <a id="amaes-home-btn" class="amaes-icon-btn" href="${getSemesterCoursesUrl()}" title="Dashboard (My Courses)">
                         ${ICONS.home}
                     </a>
 
@@ -5563,104 +5642,72 @@
                 <!-- Dynamic Update Notification Container -->
                 <div id="amaes-update-container"></div>
 
-                <!-- Course Database Status Banner (Single-Line Compact) -->
-                <div id="amaes-course-db-badge" style="
-                    display: flex;
-                    align-items: center;
-                    justify-content: space-between;
-                    padding: 5px 8px;
-                    background: ${cachedQuestions && cachedQuestions.length > 0 ? 'rgba(16, 185, 129, 0.12)' : 'rgba(239, 68, 68, 0.12)'};
-                    border: 1px solid ${cachedQuestions && cachedQuestions.length > 0 ? 'rgba(16, 185, 129, 0.4)' : 'rgba(239, 68, 68, 0.4)'};
-                    border-radius: 6px;
-                    margin-bottom: 6px;
-                    font-size: 11px;
-                ">
-                    <div style="display: flex; align-items: center; gap: 5px; min-width: 0; overflow: hidden; white-space: nowrap;">
-                        <span style="font-weight: 800; color: var(--text-primary);">
-                            ${subCode}
-                        </span>
-                        <span style="color: ${cachedQuestions && cachedQuestions.length > 0 ? 'var(--accent-green)' : 'var(--text-muted)'}; font-weight: 600; text-overflow: ellipsis; overflow: hidden;">
-                            • ${cachedQuestions && cachedQuestions.length > 0 ? `${cachedQuestions.length} Answers` : '0 Answers in DB'}
-                        </span>
-                    </div>
-                    <span style="font-size: 9px; background: ${cachedQuestions && cachedQuestions.length > 0 ? '#10b981' : '#ef4444'}; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; white-space: nowrap; flex-shrink: 0;">
-                        ${cachedQuestions && cachedQuestions.length > 0 ? 'READY' : 'NO DB'}
-                    </span>
-                </div>
-
                 <!-- Categorized Persona Navigation Tabs -->
                 <div id="amaes-nav-tabs">
-                    <button class="amaes-tab-btn" data-tab="quiz" title="Autonomous Quiz Solver, AI Prompts & In-Quiz Assistance">
-                        ${ICONS.target} <span>Quiz Solver</span>
+                    <button class="amaes-tab-btn active" data-tab="quiz" title="Autonomous Quiz Solver, AI Prompts & In-Quiz Assistance">
+                        ${ICONS.target} <span>Quiz</span>
                     </button>
                     <button class="amaes-tab-btn" data-tab="db" title="Cloud Database Sync, Verification & Sharing">
-                        ${ICONS.database} <span>Answer DB</span>
+                        ${ICONS.database} <span>DB</span>
                     </button>
                     <button class="amaes-tab-btn" data-tab="course" title="Batch Lecture Auto-Marker, Highlighters & Search">
                         ${ICONS.tools} <span>Course Tools</span>
                     </button>
                 </div>
 
-                <!-- TAB PANE 1: Quiz Solver -->
+                <!-- TAB PANE 1: Quiz -->
                 <div id="tab-pane-quiz" class="amaes-tab-pane" style="padding: 8px; display: flex; flex-direction: column; gap: 6px;">
                     <!-- Master Run / Pause Button -->
                     <button id="btn-master-auto-quiz" class="amaes-btn" style="justify-content: center; padding: 7px; font-weight: 700; font-size: 11px; border: none; background: ${autoQuizMode ? 'linear-gradient(135deg, #ef4444, #dc2626)' : 'linear-gradient(135deg, #10b981, #059669)'}; color: #fff; cursor: pointer;" title="Toggle hands-free Autonomous Quiz Solver (Shortcut: P)">
                         ${autoQuizMode ? ICONS.stop + ' <span>Pause Auto-Quiz</span>' : ICONS.play + ' <span>Start Auto-Quiz</span>'}
                     </button>
 
-                    <!-- Personality Selector (Speedrun vs Co-Pilot) -->
-                    <div style="display: flex; flex-direction: column; gap: 3px; margin-top: 2px;">
-                        <label style="font-size: 10px; color: var(--text-muted); font-weight: 600;" title="Choose how the solver behaves when encountering questions">Solver Personality:</label>
-                        <div style="display: flex; gap: 4px; background: rgba(0,0,0,0.25); padding: 3px; border-radius: 6px;">
-                            <button id="btn-personality-passive" class="amaes-btn ${quizPersonality === 'passive' ? 'amaes-btn-blue' : 'amaes-btn-outline'}" style="flex: 1; justify-content: center; font-size: 10px; padding: 4px 2px; cursor: pointer;" title="Co-Pilot: Automatically answers known questions from database. When an unknown question is reached, safely pauses, auto-copies for AI, and waits for your input.">
-                                ${ICONS.shieldCheck} <span>Co-Pilot</span>
-                            </button>
-                            <button id="btn-personality-aggressive" class="amaes-btn ${quizPersonality === 'aggressive' ? 'amaes-btn-pink' : 'amaes-btn-outline'}" style="flex: 1; justify-content: center; font-size: 10px; padding: 4px 2px; cursor: pointer;" title="Speedrun: Auto-picks known answers and skips unknown questions immediately without pausing.">
-                                ${ICONS.fastForward} <span>Speedrun (Fast)</span>
-                            </button>
-                        </div>
-                        <div id="personality-desc" style="font-size: 9.5px; color: var(--text-secondary); line-height: 1.3; margin-top: 1px;">
-                            ${quizPersonality === 'aggressive'
-                                ? '<b>Speedrun:</b> Auto-picks answers, skips unknown questions immediately, and auto-submits when done.'
-                                : '<b>Co-Pilot:</b> Auto-picks answers. On unknown question: safely pauses, auto-copies for AI, and waits for your input.'}
-                        </div>
+                    ${!isQuiz ? `
+                    <div id="amaes-quiz-not-attempt-msg" style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.2); border-radius: 6px; padding: 6px 9px; font-size: 10px; color: var(--text-secondary); display: flex; align-items: center; gap: 6px;">
+                        ${ICONS.zap}
+                        <span>Open any quiz attempt to auto-answer or copy questions.</span>
                     </div>
+                    ` : ''}
 
-                    <!-- Action Buttons: Quick Highlight & Copy for AI & Paste AI -->
+                    <!-- Action Buttons: Copy Question & Paste AI -->
                     <div style="display: flex; gap: 4px; margin-top: 2px;">
-                        <button id="btn-quick-hl" class="amaes-btn amaes-btn-green" style="flex: 1; justify-content: center; padding: 4px 4px; cursor: pointer; font-size: 10px;" title="Highlight confirmed answers from database on current quiz questions (Shortcut: H)">
-                            ${ICONS.lightbulb} <span>Highlight (H)</span>
+                        <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 5px 4px; cursor: pointer; font-size: 10px;" title="Copy current question & choices formatted for AI (Shortcut: C)">
+                            ${ICONS.copy} <span>Copy Question (C)</span>
                         </button>
-                        <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; cursor: pointer; font-size: 10px;" title="Copy current question & choices formatted for AI (Shortcut: C)">
-                            ${ICONS.copy} <span>Copy (C)</span>
-                        </button>
-                        <button id="btn-paste-ai-ans" class="amaes-btn amaes-btn-blue" style="flex: 1.1; justify-content: center; padding: 4px 4px; cursor: pointer; font-size: 10px;" title="Read AI answer from clipboard and auto-select matching choice (Shortcut: V)">
+                        <button id="btn-paste-ai-ans" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 5px 4px; cursor: pointer; font-size: 10px;" title="Read AI answer from clipboard and auto-select matching choice (Shortcut: V)">
                             ${ICONS.clipboard} <span>Paste AI (V)</span>
                         </button>
                     </div>
 
+                    <!-- Highlight Answers Persistent Toggle -->
+                    <div style="margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 5px;">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--accent-green); cursor: pointer; font-weight: 700;" title="Automatically highlight verified database, community cloud, and AMAUOED answers (Verified answers take precedence)">
+                            <input id="chk-auto-hl-quiz" type="checkbox" ${autoHighlightQuiz ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Highlight Answers (DB, Cloud, AMAUOED)</span>
+                        </label>
+                    </div>
+
                     <!-- Solver & AI Toggles -->
-                    <div style="display: flex; flex-direction: column; gap: 3px; margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 4px;">
+                    <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 2px; border-top: 1px solid var(--border-subtle); padding-top: 4px;">
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-green); cursor: pointer; font-weight: 600;" title="When checked, automatically selects the radio button / checkbox of verified answers found in database">
                             <input id="chk-auto-pick" type="checkbox" ${autoPickQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-Pick verified answers from DB</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after all questions on this page are answered">
-                            <input id="chk-auto-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-Next page (after answering)</span>
+                        <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after all questions on this page are answered without confirmation">
+                            <input id="chk-auto-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} style="cursor: pointer; margin-top: 2px;" />
+                            <div>
+                                <span>Auto-Next page</span>
+                                <div style="font-size: 9px; color: var(--accent-amber, #f59e0b); font-weight: normal; margin-top: 1px;">⚠️ No confirmation — not recommended unless you know the flow</div>
+                            </div>
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="Smart Navigation: Bypass questions already answered by auto-answer and jump straight to unanswered questions">
                             <input id="chk-smart-skip" type="checkbox" ${smartSkipQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Smart Skip: Jump directly to unanswered questions</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-pink); cursor: pointer; font-weight: 600;" title="Automatically click 'Submit all and finish' on quiz summary to load review and harvest answers">
-                            <input id="chk-auto-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-Submit to Review (Check & Harvest Answers)</span>
-                        </label>
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a78bfa; cursor: pointer; font-weight: 600;" title="Keyboard shortcuts: Space / N for Next page, C for Copy AI, V for Paste AI, P for Pause/Start, 1-4 / A-D to pick choices">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a78bfa; cursor: pointer; font-weight: 600;" title="Keyboard shortcuts: Space / N for Next page, C for Copy AI, V for Paste AI, P for Pause/Start, 1-4 / A-D to pick choices, H to Highlight">
                                 <input id="chk-keyboard-shortcuts" type="checkbox" ${enableKeyboardShortcuts ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Keyboard Shortcuts (N, C, V, P, 1-4)</span>
+                                <span>Keyboard Shortcuts (N, C, V, P, H, 1-4)</span>
                             </label>
                             <button id="btn-show-shortcuts-guide" type="button" class="amaes-inline-btn" style="padding: 1px 6px; font-size: 9.5px; background: rgba(167, 139, 250, 0.15); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="View Keyboard Shortcuts Cheatsheet">
                                 [Keys]
@@ -5670,17 +5717,21 @@
                             <input id="chk-auto-min-quiz" type="checkbox" ${autoMinimizeQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-minimize panel during quiz attempts</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Inject convenient 'Copy AI' and 'Copy Image' buttons directly above question cards in the Moodle page">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Inject convenient 'Copy Question' and 'Copy Image' buttons directly above question cards in the Moodle page">
                             <input id="chk-show-in-q-btns" type="checkbox" ${showInQuestionAiBtns ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Show "Copy for AI" buttons inside questions</span>
+                            <span>Show "Copy Question" buttons inside questions</span>
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Appends strict directive 'Answer ONLY with option letter and exact text' to AI prompt">
                             <input id="chk-ai-prompt-hint" type="checkbox" ${aiPromptHint ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Strict AI prompt (a, b, c, d only)</span>
                         </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Include database answer suggestion and confidence percentage in copied question prompt">
+                            <input id="chk-copy-confidence" type="checkbox" ${copyIncludeConfidence ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Include DB answer hint in copied prompt</span>
+                        </label>
                     </div>
 
-                    <!-- Clean Zero-Setup Status Strip -->
+                    <!-- Clean Status Strip -->
                     <div style="display: flex; align-items: center; justify-content: space-between; font-size: 10px; color: var(--text-muted); background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px; margin-top: 2px;">
                         <span style="display: flex; align-items: center; gap: 5px; color: #34d399; font-weight: 600;">${ICONS.checkCircle} <span>Answers highlight automatically</span></span>
                         <span style="color: var(--text-secondary);">Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; font-family:monospace; font-size:9px;">[Keys]</kbd> for shortcuts</span>
@@ -5700,15 +5751,37 @@
                         </div>
                     ` : ''}
 
-                    <!-- Term Coverage Breakdown Card -->
-                    <div id="amaes-term-coverage-card" style="background: rgba(0,0,0,0.2); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
+                    <!-- Course-Wide Coverage Breakdown Card -->
+                    <div id="amaes-term-coverage-card" style="background: rgba(0,0,0,0.2); padding: 7px 9px; border-radius: 6px; border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 5px;">
                         <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 700;">
                             <span style="color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
-                                ${ICONS.target} <span>Term Coverage:</span>
+                                ${ICONS.database} <span id="amaes-coverage-title">Course Coverage (${subCode || 'General'}):</span>
                             </span>
                             <span id="amaes-term-summary" style="font-size: 9.5px; color: var(--accent-green);">Loading...</span>
                         </div>
-                        <div id="amaes-term-pills" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+                        
+                        <!-- 4-Tier Harvest Source Breakdown -->
+                        <div id="amaes-source-breakdown" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px; font-size: 9.5px;">
+                            <div style="background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 4px; padding: 3px 6px; display: flex; justify-content: space-between;">
+                                <span style="color: var(--accent-green); font-weight: 600;">Verified DB:</span>
+                                <b id="amaes-stat-verified" style="color: #34d399;">0</b>
+                            </div>
+                            <div style="background: rgba(59, 130, 246, 0.1); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 4px; padding: 3px 6px; display: flex; justify-content: space-between;">
+                                <span style="color: #60a5fa; font-weight: 600;">Community:</span>
+                                <b id="amaes-stat-community" style="color: #93c5fd;">0</b>
+                            </div>
+                            <div style="background: rgba(168, 85, 247, 0.1); border: 1px solid rgba(168, 85, 247, 0.3); border-radius: 4px; padding: 3px 6px; display: flex; justify-content: space-between;">
+                                <span style="color: #c084fc; font-weight: 600;">AMAUOED:</span>
+                                <b id="amaes-stat-amauoed" style="color: #d8b4fe;">0</b>
+                            </div>
+                            <div style="background: rgba(239, 68, 68, 0.1); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 4px; padding: 3px 6px; display: flex; justify-content: space-between;">
+                                <span style="color: #f87171; font-weight: 600;">Eliminated:</span>
+                                <b id="amaes-stat-eliminated" style="color: #fca5a5;">0</b>
+                            </div>
+                        </div>
+
+                        <!-- Term Pills -->
+                        <div id="amaes-term-pills" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px;">
                             <!-- Populated dynamically by updateTermCoverageUI -->
                         </div>
                     </div>
@@ -5726,18 +5799,15 @@
                     <!-- Consolidated Import / Export & Files Accordion -->
                     <details style="border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 7px; background: rgba(0,0,0,0.15);">
                         <summary style="font-size: 10px; font-weight: 700; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
-                            <span>Import / Export & Files</span>
+                            <span>Import / Export JSON Backups</span>
                             <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
                         </summary>
-                        <div style="display: flex; gap: 4px; margin-top: 6px;">
+                        <div style="display: flex; gap: 6px; margin-top: 6px;">
                             <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; font-size: 10px;" title="Download cached verified answers as a JSON file">
-                                ${ICONS.download} <span>Export</span>
+                                ${ICONS.download} <span>Export JSON</span>
                             </button>
                             <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; font-size: 10px;" title="Import & cross-reference JSON files with consensus conflict resolution">
-                                ${ICONS.upload} <span>Import</span>
-                            </button>
-                            <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; font-size: 10px;" title="Copy clean study guide text to clipboard to share on Messenger or Discord">
-                                ${ICONS.share} <span>Share</span>
+                                ${ICONS.upload} <span>Import JSON</span>
                             </button>
                             <input id="file-import-json" type="file" multiple accept=".json" style="display: none;" />
                         </div>
@@ -5793,13 +5863,13 @@
                             <input id="chk-auto-cloud-sync" type="checkbox" ${autoCloudSync ? 'checked' : ''} style="cursor: pointer;" />
                             <span style="font-weight: 600; color: var(--text-primary);">Auto-pull community answers on course open</span>
                         </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically scrape static AMAUOED answer keys if cloud database is empty (Default: ON)">
+                            <input id="chk-auto-scrape-amauoed" type="checkbox" ${autoScrapeAmauoed ? 'checked' : ''} style="cursor: pointer;" />
+                            <span style="font-weight: 600; color: var(--accent-purple);">Auto-scrape AMAUOED when missing</span>
+                        </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically queue / share verified answers to Community Hub on quiz review (Default: ON)">
                             <input id="chk-auto-community-share" type="checkbox" ${autoCommunityShare ? 'checked' : ''} style="cursor: pointer;" />
                             <span style="font-weight: 600; color: var(--accent-green);">Auto-share verified answers on Review</span>
-                        </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically highlight verified answers whenever you navigate to a quiz page">
-                            <input id="chk-auto-hl-quiz" type="checkbox" ${autoHighlightQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-highlight on quiz open</span>
                         </label>
                     </div>
                 </div>
@@ -5886,6 +5956,10 @@
                                 ${ICONS.clear} <span>Clear</span>
                             </button>
                         </div>
+
+                        <button id="btn-hl-missing-quizzes" class="amaes-btn amaes-btn-outline amaes-text-pink" style="width: 100%; justify-content: center; padding: 5px 6px; font-size: 10.5px; font-weight: 700; margin-top: 2px;" title="Highlight unanswered, unattempted, or missing quizzes on Grades or Course page">
+                            ${ICONS.alertTriangle || ICONS.preview} <span>Highlight Missing Quizzes</span>
+                        </button>
                     </div>
                 </div>
                     <!-- MODULE 3: Quick Search Helper -->
@@ -5981,7 +6055,10 @@
                     ">
                         <div style="display: flex; align-items: center; justify-content: space-between; font-size: 9px; color: var(--text-muted); font-weight: 700; text-transform: uppercase;">
                             <span>Recent Activity ("Done"):</span>
-                            <button id="amaes-btn-clear-logs" type="button" style="background: none; border: none; color: var(--text-muted); text-decoration: underline; font-size: 9px; cursor: pointer; padding: 0;">Clear</button>
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <button id="amaes-btn-copy-logs" type="button" style="background: none; border: none; color: var(--accent-blue, #3b82f6); text-decoration: underline; font-size: 9px; cursor: pointer; padding: 0;" title="Copy all logged activities to clipboard">Copy Log</button>
+                                <button id="amaes-btn-clear-logs" type="button" style="background: none; border: none; color: var(--text-muted); text-decoration: underline; font-size: 9px; cursor: pointer; padding: 0;">Clear</button>
+                            </div>
                         </div>
                         <div id="amaes-logs-list" style="display: flex; flex-direction: column; gap: 2px; font-family: -apple-system, BlinkMacSystemFont, monospace; font-size: 9.5px;">
                             <span style="color: var(--text-muted); font-style: italic;">No recorded events yet.</span>
@@ -6515,106 +6592,70 @@
             btn.onclick = () => switchTab(btn.dataset.tab);
         });
 
-        // Smart Initial Tab Selection:
-        // If on quiz page, open Quiz Solver. If on course dashboard, open Course Tools.
-        let initialTab = localStorage.getItem('amaes_active_tab') || (isQuiz ? 'quiz' : 'course');
-        if (isQuiz) {
-            initialTab = 'quiz';
-        } else if (!isQuiz && initialTab === 'quiz') {
-            initialTab = 'course';
-        }
+        // Initial Tab Selection: Auto-open to 'quiz'
+        let initialTab = localStorage.getItem('amaes_active_tab') || 'quiz';
         switchTab(initialTab);
 
-        // Quick Highlight button in Quiz Solver tab
-        const btnQuickHl = document.getElementById('btn-quick-hl');
-        if (btnQuickHl) {
-            btnQuickHl.onclick = () => {
-                const cached = getCachedAnswers(subCode);
-                if (!cached || cached.length === 0) {
-                    setLog("No answers cached in DB yet! Fetching from cloud...", "var(--accent-amber)");
-                    if (typeof autoFetchCloudAnswersIfMissing === 'function') {
-                        autoFetchCloudAnswersIfMissing(subCode).then(ok => {
-                            if (ok) {
-                                const newCached = getCachedAnswers(subCode);
-                                highlightQuizAnswers(newCached, false, true);
-                            } else {
-                                setLog("No database found for " + subCode, "var(--accent-pink)");
-                            }
-                        });
-                    }
-                    return;
-                }
-                const res = highlightQuizAnswers(cached, false, true);
-                if (res.error) {
-                    setLog(res.error, "var(--accent-pink)");
-                } else {
-                    setLog(`Highlighted <b>${res.matched}/${res.total}</b> answers from database!`, "var(--accent-green)");
-                }
-            };
-        }
-
-        // --- MODULE 1: Autonomous Quiz Solver Controls ---
+        // --- MODULE 1: Autonomous Quiz Controls ---
         const isAttemptPage = checkIsQuizAttemptPage();
 
         const btnMasterAutoQuiz = document.getElementById('btn-master-auto-quiz');
-        const btnPersonalityPassive = document.getElementById('btn-personality-passive');
-        const btnPersonalityAggressive = document.getElementById('btn-personality-aggressive');
-        const personalityDesc = document.getElementById('personality-desc');
         const btnCopyCurrQ = document.getElementById('btn-copy-curr-q');
-        const btnCopyAllQ = document.getElementById('btn-copy-all-q');
         const chkAutoPick = document.getElementById('chk-auto-pick');
         const chkAutoNext = document.getElementById('chk-auto-next');
-        const chkAutoSubmit = document.getElementById('chk-auto-submit');
         const chkAiPromptHint = document.getElementById('chk-ai-prompt-hint');
+        const chkAutoHlQuiz = document.getElementById('chk-auto-hl-quiz');
+        const chkCopyConfidence = document.getElementById('chk-copy-confidence');
 
         if (btnMasterAutoQuiz) {
-            if (btnMasterAutoQuiz) btnMasterAutoQuiz.onclick = () => {
+            btnMasterAutoQuiz.onclick = () => {
+                if (!checkIsQuizAttemptPage() && !autoQuizMode) {
+                    showToast("Open any quiz attempt to start auto-quiz!", 3000);
+                    setLog("Open any quiz attempt to start auto-quiz.", "var(--accent-blue)");
+                    return;
+                }
                 toggleAutoQuizMode();
             };
         }
 
-        if (btnPersonalityPassive) {
-            if (btnPersonalityPassive) btnPersonalityPassive.onclick = () => {
-                quizPersonality = 'passive';
-                localStorage.setItem('amaes_quiz_personality', 'passive');
-                btnPersonalityPassive.className = 'amaes-btn amaes-btn-blue';
-                btnPersonalityAggressive.className = 'amaes-btn amaes-btn-outline';
-                if (personalityDesc) {
-                    personalityDesc.innerHTML = '<b>Co-Pilot:</b> Auto-picks answers. On unknown question: safely pauses, auto-copies for AI, and waits.';
+        if (chkAutoHlQuiz) {
+            chkAutoHlQuiz.onchange = () => {
+                autoHighlightQuiz = chkAutoHlQuiz.checked;
+                localStorage.setItem('amaes_auto_highlight_quiz', autoHighlightQuiz);
+                showToast(`Highlight Answers: ${autoHighlightQuiz ? 'Enabled' : 'Disabled'}`);
+                if (autoHighlightQuiz && checkIsQuizAttemptPage()) {
+                    const cached = getCachedAnswers(subCode);
+                    if (cached && cached.length > 0) {
+                        highlightQuizAnswers(cached, false, true);
+                    } else if (typeof autoFetchCloudAnswersIfMissing === 'function') {
+                        autoFetchCloudAnswersIfMissing(subCode).then(ok => {
+                            if (ok) highlightQuizAnswers(getCachedAnswers(subCode), false, true);
+                        });
+                    }
                 }
-                showToast("Personality: Co-Pilot (Safe)");
-                setLog(`Quiz Solver personality set to <b>${ICONS.shieldCheck} <span>Co-Pilot (Safe)</span></b>.`, "var(--accent-blue)");
-                syncAutoQuizUI();
             };
         }
 
-        if (btnPersonalityAggressive) {
-            if (btnPersonalityAggressive) btnPersonalityAggressive.onclick = () => {
-                quizPersonality = 'aggressive';
-                localStorage.setItem('amaes_quiz_personality', 'aggressive');
-                btnPersonalityAggressive.className = 'amaes-btn amaes-btn-pink';
-                btnPersonalityPassive.className = 'amaes-btn amaes-btn-outline';
-                if (personalityDesc) {
-                    personalityDesc.innerHTML = '<b>Speedrun:</b> Auto-picks answers, skips unknown questions immediately, and auto-submits when done.';
-                }
-                showToast("Personality: Speedrun (Fast)");
-                setLog(`Quiz Solver personality set to <b>${ICONS.fastForward} <span>Speedrun (Fast)</span></b>.`, "var(--accent-pink)");
-                syncAutoQuizUI();
+        if (chkCopyConfidence) {
+            chkCopyConfidence.onchange = () => {
+                copyIncludeConfidence = chkCopyConfidence.checked;
+                localStorage.setItem('amaes_copy_include_confidence', copyIncludeConfidence);
+                showToast(`Include DB Hints: ${copyIncludeConfidence ? 'Enabled' : 'Disabled'}`);
             };
         }
 
         const chkShowInQBtns = document.getElementById('chk-show-in-q-btns');
         if (chkShowInQBtns) {
-            if (chkShowInQBtns) chkShowInQBtns.onchange = (e) => {
+            chkShowInQBtns.onchange = (e) => {
                 showInQuestionAiBtns = e.target.checked;
                 localStorage.setItem('amaes_show_in_question_ai_btns', showInQuestionAiBtns);
                 injectQuestionCopyButtons();
-                showToast(`In-question AI buttons: ${showInQuestionAiBtns ? 'Shown' : 'Hidden'}`);
+                showToast(`In-question buttons: ${showInQuestionAiBtns ? 'Shown' : 'Hidden'}`);
             };
         }
 
         if (chkAutoPick) {
-            if (chkAutoPick) chkAutoPick.onchange = () => {
+            chkAutoPick.onchange = () => {
                 autoPickQuiz = chkAutoPick.checked;
                 localStorage.setItem('amaes_auto_pick_quiz', autoPickQuiz);
                 showToast(`Auto-Pick: ${autoPickQuiz ? 'Enabled' : 'Disabled'}`);
@@ -6623,7 +6664,7 @@
         }
 
         if (chkAutoNext) {
-            if (chkAutoNext) chkAutoNext.onchange = () => {
+            chkAutoNext.onchange = () => {
                 autoNextQuiz = chkAutoNext.checked;
                 localStorage.setItem('amaes_auto_next_quiz', autoNextQuiz);
                 showToast(`Auto-Next: ${autoNextQuiz ? 'Enabled' : 'Disabled'}`);
@@ -6633,7 +6674,7 @@
 
         const chkSmartSkip = document.getElementById('chk-smart-skip');
         if (chkSmartSkip) {
-            if (chkSmartSkip) chkSmartSkip.onchange = () => {
+            chkSmartSkip.onchange = () => {
                 smartSkipQuiz = chkSmartSkip.checked;
                 localStorage.setItem('amaes_smart_skip_quiz', smartSkipQuiz);
                 showToast(`Smart Skip: ${smartSkipQuiz ? 'Enabled' : 'Disabled'}`);
@@ -6659,24 +6700,15 @@
             };
         }
 
-        if (chkAutoSubmit) {
-            if (chkAutoSubmit) chkAutoSubmit.onchange = () => {
-                autoSubmitQuiz = chkAutoSubmit.checked;
-                localStorage.setItem('amaes_auto_submit_quiz', autoSubmitQuiz);
-                showToast(`Auto-Submit Quiz: ${autoSubmitQuiz ? 'Enabled' : 'Disabled'}`);
-                if (autoSubmitQuiz && checkIsQuizSummaryPage()) handleQuizSummaryAutoSubmit();
-            };
-        }
-
         if (chkAiPromptHint) {
-            if (chkAiPromptHint) chkAiPromptHint.onchange = () => {
+            chkAiPromptHint.onchange = () => {
                 aiPromptHint = chkAiPromptHint.checked;
                 localStorage.setItem('amaes_ai_prompt_hint', aiPromptHint);
             };
         }
 
         if (btnCopyCurrQ) {
-            if (btnCopyCurrQ) btnCopyCurrQ.onclick = async () => {
+            btnCopyCurrQ.onclick = async () => {
                 const queList = document.querySelectorAll('.que');
                 if (queList.length === 0) {
                     setLog("<b>No questions found</b> on this page.", "var(--accent-pink)");
@@ -6688,10 +6720,10 @@
                 try {
                     await copyToClipboard(text);
                     btnCopyCurrQ.innerHTML = `${ICONS.check} <span>Copied!</span>`;
-                    showToast(willIncludeContext ? 'Question copied with Course AI Context!' : 'Question & choices copied for AI!');
-                    setLog(willIncludeContext ? 'Copied current question with Course AI Context!' : 'Copied current question & choices for AI!', "var(--accent-green)");
+                    showToast(willIncludeContext ? 'Question copied with Course AI Context!' : 'Question & choices copied!');
+                    setLog(willIncludeContext ? 'Copied current question with Course AI Context!' : 'Copied current question & choices!', "var(--accent-green)");
                     setTimeout(() => {
-                        btnCopyCurrQ.innerHTML = `${ICONS.copy} <span>Copy (C)</span>`;
+                        btnCopyCurrQ.innerHTML = `${ICONS.copy} <span>Copy Question (C)</span>`;
                     }, 1800);
                 } catch (err) {
                     setLog("Failed to copy to clipboard.", "var(--accent-pink)");
@@ -6749,7 +6781,6 @@
         const fetchBtnLabel = document.getElementById('fetch-btn-label');
         const hlAnswersBtn = document.getElementById('btn-hl-answers');
         const selectAnswersBtn = document.getElementById('btn-select-answers');
-        const chkAutoHlQuiz = document.getElementById('chk-auto-hl-quiz');
 
         function updateUrlMatchBadge() {
             if (!urlMatchBadge || !amauoedUrlInput) return;
@@ -6788,20 +6819,56 @@
         }
 
         function updateTermCoverageUI(code) {
-            const targetCode = code || subCode;
+            const targetCode = code || subCode || 'GENERAL';
             const summaryEl = document.getElementById('amaes-term-summary');
             const pillsEl = document.getElementById('amaes-term-pills');
+            const titleEl = document.getElementById('amaes-coverage-title');
+            if (titleEl) titleEl.innerText = `Course Coverage (${targetCode}):`;
             if (!pillsEl || !summaryEl) return;
 
-            const stats = getSubjectTermBreakdown(targetCode);
-            const total = stats.total;
+            const questions = getCachedAnswers(targetCode) || [];
+            const total = questions.length;
 
+            let verifiedCount = 0;
+            let communityCount = 0;
+            let amauoedCount = 0;
+            let eliminatedCount = 0;
+
+            questions.forEach(q => {
+                const s = (q.source || '').toLowerCase();
+                const sources = Array.isArray(q.sources) ? q.sources.map(x => (x || '').toLowerCase()) : [];
+                const isAmauoed = s.includes('amauoed') || sources.some(x => x.includes('amauoed'));
+                const isComm = s.includes('community') || sources.some(x => x.includes('community'));
+
+                if (isAmauoed) {
+                    amauoedCount++;
+                } else if (isComm) {
+                    communityCount++;
+                } else {
+                    verifiedCount++;
+                }
+
+                if (Array.isArray(q.wrongAnswers)) {
+                    eliminatedCount += q.wrongAnswers.length;
+                }
+            });
+
+            const statVer = document.getElementById('amaes-stat-verified');
+            const statComm = document.getElementById('amaes-stat-community');
+            const statAmau = document.getElementById('amaes-stat-amauoed');
+            const statElim = document.getElementById('amaes-stat-eliminated');
+            if (statVer) statVer.innerText = String(verifiedCount);
+            if (statComm) statComm.innerText = String(communityCount);
+            if (statAmau) statAmau.innerText = String(amauoedCount);
+            if (statElim) statElim.innerText = String(eliminatedCount);
+
+            const stats = getSubjectTermBreakdown(targetCode);
             if (total === 0) {
                 summaryEl.innerText = "No Qs Saved";
                 summaryEl.style.color = "var(--text-muted)";
             } else {
                 const covered = [stats.prelim > 0, stats.midterm > 0, stats.prefi > 0, stats.final > 0].filter(Boolean).length;
-                summaryEl.innerText = `${total} Qs • ${covered}/4 Terms Ready`;
+                summaryEl.innerText = `${total} Qs Total • ${covered}/4 Terms Ready`;
                 summaryEl.style.color = covered === 4 ? "var(--accent-green)" : covered > 0 ? "var(--accent-blue)" : "var(--text-secondary)";
             }
 
@@ -7249,6 +7316,16 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
             };
         }
 
+        const chkAutoScrapeAmauoed = document.getElementById('chk-auto-scrape-amauoed');
+        if (chkAutoScrapeAmauoed) {
+            chkAutoScrapeAmauoed.onchange = (e) => {
+                autoScrapeAmauoed = e.target.checked;
+                localStorage.setItem('amaes_auto_scrape_amauoed', autoScrapeAmauoed);
+                showToast(`Auto-scrape AMAUOED: ${autoScrapeAmauoed ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-scrape AMAUOED when missing: <b>${autoScrapeAmauoed ? 'ON' : 'OFF'}</b>`, autoScrapeAmauoed ? "var(--accent-purple)" : "var(--accent-amber)");
+            };
+        }
+
         if (chkAutoDlJson) {
             chkAutoDlJson.onchange = (e) => {
                 localStorage.setItem('amaes_auto_dl_json', e.target.checked);
@@ -7298,6 +7375,23 @@ setupPersistentAccordion('mod-highlighter-header', 'mod-highlighter-body', 'mod-
             clearAllHighlights();
             setLog("Cleared all highlights.", "var(--text-muted)");
         };
+
+        const btnHlMissingQuizzes = document.getElementById('btn-hl-missing-quizzes');
+        if (btnHlMissingQuizzes) {
+            btnHlMissingQuizzes.onclick = () => {
+                const res = highlightMissingOrUnansweredQuizzes();
+                if (res.count > 0) {
+                    showToast(`Highlighted ${res.count} missing/unattempted quizzes!`);
+                    setLog(`Found and highlighted <b>${res.count}</b> missing/unattempted quizzes.`, "var(--accent-amber)");
+                } else if (res.message) {
+                    showToast(res.message);
+                    setLog(res.message, "var(--accent-green)");
+                } else {
+                    showToast("No missing quizzes found on this page! All completed.");
+                    setLog("No missing quizzes found on this page. All activities completed!", "var(--accent-green)");
+                }
+            };
+        }
 
         // --- MODULE 3: Search Module Elements ---
         const modSearchHeader = document.getElementById('mod-search-header');
@@ -7440,6 +7534,26 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                 renderActivityLogs();
                 const countBadge = document.getElementById('amaes-log-count-badge');
                 if (countBadge) countBadge.innerText = 'Log (0)';
+            };
+        }
+
+        const btnCopyLogs = document.getElementById('amaes-btn-copy-logs');
+        if (btnCopyLogs) {
+            btnCopyLogs.onclick = async (e) => {
+                e.preventDefault();
+                if (activityHistory.length === 0) {
+                    showToast("No logs recorded yet to copy!");
+                    return;
+                }
+                const lines = activityHistory.map(item => `[${item.time}] ${item.text}`).reverse();
+                const logText = `AMAES Moodle Toolkit Activity Log\nSubject: ${subCode || 'General'}\nExported: ${new Date().toLocaleString()}\n\n` + lines.join('\n');
+                try {
+                    await copyToClipboard(logText);
+                    showToast(`Copied ${activityHistory.length} log events to clipboard!`);
+                    setLog(`Copied <b>${activityHistory.length}</b> activity log entries to clipboard.`, "var(--accent-blue)");
+                } catch (err) {
+                    showToast("Failed to copy logs to clipboard.");
+                }
             };
         }
 

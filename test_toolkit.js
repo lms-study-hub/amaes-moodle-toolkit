@@ -550,18 +550,18 @@ test("Quiz Speedrun Shortcuts: accurately maps 1-4 and A-D to choice indices and
 });
 
 // --------------------------------------------------
-// 18. Auto-Next to Review & Data Check Defaults
+// 18. Auto-Next & Safe Progression Defaults
 // --------------------------------------------------
-test("Auto-Next & Manual Review Submission Defaults: autoNextQuiz is true, autoSubmitQuiz is false", () => {
+test("Auto-Next & Safe Progression Defaults: autoNextQuiz is false, autoSubmitQuiz is permanently false", () => {
     const mockLocalStorage = {
         getItem: (k) => null // default state on fresh install
     };
 
-    const autoNextQuiz = mockLocalStorage.getItem('amaes_auto_next_quiz') !== 'false';
-    const autoSubmitQuiz = mockLocalStorage.getItem('amaes_auto_submit_quiz') === 'true';
+    const autoNextQuiz = mockLocalStorage.getItem('amaes_auto_next_quiz') === 'true';
+    const autoSubmitQuiz = false; // Permanently disabled by design
 
-    assert.strictEqual(autoNextQuiz, true, "autoNextQuiz must default to true for auto-advance after answering!");
-    assert.strictEqual(autoSubmitQuiz, false, "autoSubmitQuiz must default to false so quiz submit is not forced on user!");
+    assert.strictEqual(autoNextQuiz, false, "autoNextQuiz must default to false so students can review answers before advancing!");
+    assert.strictEqual(autoSubmitQuiz, false, "autoSubmitQuiz must remain false to prevent accidental quiz submission!");
 });
 
 // --------------------------------------------------
@@ -824,6 +824,160 @@ test("Contradiction Safety: Confirmed wrong choice demotes invalid answer and bl
     assert.strictEqual(cur.verified, false, "verified must be demoted to false");
     assert.strictEqual(cur.confirmations, 0, "confirmations must reset to 0");
     assert.strictEqual(cur.wrongAnswers.length, 1, "wrongAnswers must contain the eliminated choice");
+});
+
+// --------------------------------------------------
+// 28. Dynamic Semester Detection (No Hardcoded 2612)
+// --------------------------------------------------
+test("Dynamic Semester Detection: extracts any term code dynamically (2612, 2613, 301)", () => {
+    function detectSemesterBase(pathname, mockStorage = {}) {
+        const m = pathname.match(/^\/(\d{3,5})\//);
+        if (m) {
+            return `/${m[1]}/`;
+        }
+        return mockStorage.saved || '/';
+    }
+
+    function buildCoursesUrl(pathname, origin = 'https://semestral.amaes.com') {
+        return `${origin}${detectSemesterBase(pathname)}my/courses.php`;
+    }
+
+    assert.strictEqual(detectSemesterBase('/2612/my/courses.php'), '/2612/');
+    assert.strictEqual(detectSemesterBase('/2613/course/view.php?id=123'), '/2613/');
+    assert.strictEqual(detectSemesterBase('/301/mod/quiz/attempt.php'), '/301/');
+    assert.strictEqual(detectSemesterBase('/login/index.php', { saved: '/2612/' }), '/2612/');
+    assert.strictEqual(detectSemesterBase('/login/index.php'), '/');
+
+    assert.strictEqual(buildCoursesUrl('/2612/my/courses.php'), 'https://semestral.amaes.com/2612/my/courses.php');
+    assert.strictEqual(buildCoursesUrl('/2613/my/courses.php'), 'https://semestral.amaes.com/2613/my/courses.php');
+    assert.strictEqual(buildCoursesUrl('/301/my/courses.php'), 'https://semestral.amaes.com/301/my/courses.php');
+});
+
+// --------------------------------------------------
+// 29. Copy Prompt Formatting: DB Answer & Confidence Toggle
+// --------------------------------------------------
+test("Copy Prompt Formatting: respects copyIncludeConfidence toggle for answer hints", () => {
+    function formatPrompt(qText, choices, detectedAnswer, copyIncludeConfidence, withHint = true) {
+        let output = `${qText}\n\n`;
+        output += choices.join('\n');
+        if (detectedAnswer && copyIncludeConfidence) {
+            output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
+        }
+        if (withHint) {
+            output += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and the exact choice text.`;
+        }
+        return output.trim();
+    }
+
+    const q = "What does RAM stand for?";
+    const choices = ["a. Random Access Memory", "b. Read Access Memory"];
+    const detected = { text: "Random Access Memory", label: "Verified • 100% Probability", source: "Verified Database" };
+
+    const withConfidence = formatPrompt(q, choices, detected, true);
+    assert.ok(withConfidence.includes("[DETECTED ANSWER IN DATABASE]"), "Must include DB hints when copyIncludeConfidence is true");
+    assert.ok(withConfidence.includes("Suggested: Random Access Memory"), "Must include suggestion");
+
+    const withoutConfidence = formatPrompt(q, choices, detected, false);
+    assert.strictEqual(withoutConfidence.includes("[DETECTED ANSWER IN DATABASE]"), false, "Must exclude DB hints when copyIncludeConfidence is false");
+});
+
+// --------------------------------------------------
+// 30. Unanswered / Missing Quizzes Detector
+// --------------------------------------------------
+test("Missing Quizzes Detector: marks unattempted quizzes in grades report and course page", () => {
+    // 1. Simulate Grades Report table rows
+    const mockGradesRows = [
+        { title: "Prelim Quiz 1", href: "/mod/quiz/view.php?id=1", grade: "100.00", pct: "100.00%" },
+        { title: "Prelim Quiz 2", href: "/mod/quiz/view.php?id=2", grade: "-", pct: "-" },
+        { title: "Midterm Exam", href: "/mod/quiz/view.php?id=3", grade: "", pct: "" },
+        { title: "Prefi Quiz 1", href: "/mod/quiz/view.php?id=4", grade: "85.00", pct: "85.00%" }
+    ];
+
+    const missingInGrades = mockGradesRows.filter(r => {
+        const hasGrade = (r.grade && r.grade !== '-' && r.grade !== '–' && /\d/.test(r.grade)) ||
+                         (r.pct && r.pct !== '-' && r.pct !== '–' && !r.pct.includes('0.00') && /\d/.test(r.pct));
+        return !hasGrade;
+    });
+
+    assert.strictEqual(missingInGrades.length, 2, "Must detect exactly 2 unattempted/missing quizzes in Grades table");
+    assert.strictEqual(missingInGrades[0].title, "Prelim Quiz 2");
+    assert.strictEqual(missingInGrades[1].title, "Midterm Exam");
+
+    // 2. Simulate Course page activity cards
+    const mockCourseActivities = [
+        { title: "Lecture 1", type: "lecture", isCompleted: true },
+        { title: "Quiz 1", type: "quiz", isCompleted: true },
+        { title: "Quiz 2", type: "quiz", isCompleted: false },
+        { title: "Quiz 3", type: "quiz", isCompleted: false }
+    ];
+
+    const missingInCourse = mockCourseActivities.filter(a => a.type === 'quiz' && !a.isCompleted);
+    assert.strictEqual(missingInCourse.length, 2, "Must detect 2 incomplete quizzes on course page");
+});
+
+// --------------------------------------------------
+// 31. Activity Log Feed Export & Copy Formatting
+// --------------------------------------------------
+test("Activity Log Feed Export: formats chronological log entries with timestamps", () => {
+    const mockHistory = [
+        { time: "09:05:01 AM", text: "Auto-synced 180 answers for ITE6301" },
+        { time: "09:05:15 AM", text: "Answered Question 1: Verified (100%)" },
+        { time: "09:05:20 AM", text: "Highlighted 15 answers on quiz attempt" }
+    ];
+
+    function exportLogs(history, subject = "ITE6301") {
+        if (!history || history.length === 0) return '';
+        const lines = history.map(item => `[${item.time}] ${item.text}`).reverse();
+        return `AMAES Moodle Toolkit Activity Log\nSubject: ${subject}\n\n` + lines.join('\n');
+    }
+
+    const exported = exportLogs(mockHistory, "ITE6301");
+    assert.ok(exported.includes("Subject: ITE6301"));
+    assert.ok(exported.includes("[09:05:01 AM] Auto-synced 180 answers for ITE6301"));
+    assert.ok(exported.includes("[09:05:20 AM] Highlighted 15 answers on quiz attempt"));
+});
+
+// --------------------------------------------------
+// 32. Course-Wide Coverage & 4-Tier Breakdown Aggregation
+// --------------------------------------------------
+test("Course-Wide Coverage: accurately tallies 4-tier sources (Verified DB, Community, AMAUOED, Eliminated)", () => {
+    const mockCachedQuestions = [
+        { qNorm: "q1", ansNorm: "a1", source: "grade_report", wrongAnswers: ["w1", "w2"] },
+        { qNorm: "q2", ansNorm: "a2", source: "quiz_review", wrongAnswers: [] },
+        { qNorm: "q3", ansNorm: "a3", source: "community", wrongAnswers: ["w3"] },
+        { qNorm: "q4", ansNorm: "a4", source: "amauoed", wrongAnswers: [] },
+        { qNorm: "q5", ansNorm: "a5", sources: ["amauoed_import"], wrongAnswers: ["w4"] }
+    ];
+
+    let verified = 0;
+    let community = 0;
+    let amauoed = 0;
+    let eliminated = 0;
+
+    mockCachedQuestions.forEach(q => {
+        const s = (q.source || '').toLowerCase();
+        const sources = Array.isArray(q.sources) ? q.sources.map(x => (x || '').toLowerCase()) : [];
+        const isAmauoed = s.includes('amauoed') || sources.some(x => x.includes('amauoed'));
+        const isComm = s.includes('community') || sources.some(x => x.includes('community'));
+
+        if (isAmauoed) {
+            amauoed++;
+        } else if (isComm) {
+            community++;
+        } else {
+            verified++;
+        }
+
+        if (Array.isArray(q.wrongAnswers)) {
+            eliminated += q.wrongAnswers.length;
+        }
+    });
+
+    assert.strictEqual(verified, 2, "Verified DB count should be 2 (grade_report + quiz_review)");
+    assert.strictEqual(community, 1, "Community count should be 1");
+    assert.strictEqual(amauoed, 2, "AMAUOED count should be 2");
+    assert.strictEqual(eliminated, 4, "Total eliminated wrong choices should be 4");
+    assert.strictEqual(mockCachedQuestions.length, 5, "Total questions in coverage should be 5");
 });
 
 console.log("\n==================================================");
