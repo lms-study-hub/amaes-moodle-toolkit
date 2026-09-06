@@ -1,11 +1,11 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.0.3-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.3)
+[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.4)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 
-> **Version 1.0.3** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.0.4** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
@@ -32,7 +32,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey / Violentmonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Extensions will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.0.3`) in the panel header or inside the **Quick Start Guide** modal to immediately check GitHub for updates.
+- **On-Demand Check**: Click the version badge (`v1.0.4`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
 
 ---
 
@@ -50,7 +50,7 @@ The **AMAES & ACLC Moodle Toolkit** is an advanced paired userscript designed fo
 
 ## Safe by Default Architecture
 
-To prevent accidental submissions or overwhelming new users, **all aggressive automation is turned OFF by default**:
+To prevent accidental submissions or overwhelming new users, **all aggressive automation is turned OFF by default**, while convenient assistive tools are enabled out of the box:
 
 | Feature | Default Setting | Description |
 | :--- | :---: | :--- |
@@ -58,7 +58,10 @@ To prevent accidental submissions or overwhelming new users, **all aggressive au
 | **Solver Personality** | **Co-Pilot** | Auto-picks known answers. Pauses safely when an unknown question appears. |
 | **Auto-Highlight** | **Enabled (On)** | Non-destructive visual badges on quiz choices. |
 | **Auto-Copy for AI** | **Enabled (On)** | Copies unknown question + choices cleanly to clipboard for Gemini/ChatGPT. |
-| **Keyboard Navigation** | **Enabled (On)** | Fast keybindings for hands-free quiz navigation. |
+| **Keyboard Shortcuts** | **Enabled (On)** | Fast keybindings for hands-free quiz navigation (`1-4`, `N`, `Space`, `C`, `P`, `H`). |
+| **Cloud Database Sync** | **Enabled (On)** | Seamlessly checks and syncs verified answers from community repository on load. |
+| **In-Question AI Buttons** | **Enabled (On)** | Convenient inline buttons above questions to copy questions or images. |
+| **Strict AI Direct Prompt**| **Enabled (On)** | Enforces strict, direct option letter answers from LLM assistants. |
 | **Auto-Next Page** | **Disabled (Off)** | Will never jump pages automatically unless explicitly enabled. |
 | **Auto-Submit Quiz** | **Disabled (Off)** | Prevents accidental final exam/quiz submission. |
 | **Auto-Download JSON** | **Disabled (Off)** | Prevents file clutter on quiz review pages. |
