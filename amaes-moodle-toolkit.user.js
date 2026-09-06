@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.5
+// @version      1.2.6
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -23,11 +23,11 @@
     'use strict';
 
     // STRICT DOMAIN LOCK: Ensure execution ONLY on semestral.amaes.com
-    if (window.location.hostname !== 'semestral.amaes.com') {
+    if (!window.location.hostname.includes('semestral.amaes.com')) {
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.5";
+    const SCRIPT_VERSION = "v1.2.6";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 

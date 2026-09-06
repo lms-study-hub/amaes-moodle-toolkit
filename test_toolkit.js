@@ -416,14 +416,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.2.6');
+    mockStorage.set('amaes_latest_version_seen', '1.2.7');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.2.5";
+    const currentVersion = "v1.2.6";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.6 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.7 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
