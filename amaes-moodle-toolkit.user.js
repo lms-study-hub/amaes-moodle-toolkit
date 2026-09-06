@@ -3635,7 +3635,7 @@
         if (!checkIsQuizPage()) return;
 
         injectQuestionCopyButtons();
-        injectReviewScreenBanner();
+        handleQuizReviewPageLoad();
 
         if (checkIsQuizAttemptPage()) {
             injectQuizFloatingHUD();
@@ -3679,12 +3679,12 @@
             setTimeout(handleQuizSummaryAutoSubmit, 600);
         }
 
-        // Debounced observer: updates buttons, answer listeners, and review banner
+        // Debounced observer: updates buttons, answer listeners, and review harvesting
         const observer = new MutationObserver(() => {
             clearTimeout(observerDebounceTimer);
             observerDebounceTimer = setTimeout(() => {
                 injectQuestionCopyButtons();
-                injectReviewScreenBanner();
+                handleQuizReviewPageLoad();
                 if (checkIsQuizAttemptPage()) {
                     setupQuizAnswerListeners();
                 }
@@ -4723,12 +4723,13 @@
 
 
 
-    function injectReviewScreenBanner() {
+    let lastProcessedReviewAttempt = null;
+    function handleQuizReviewPageLoad() {
         if (!checkIsReviewPage()) return;
-        if (document.getElementById('amaes-review-banner')) return;
 
         const urlParams = new URLSearchParams(window.location.search);
-        const attemptId = urlParams.get('attempt') || 'review';
+        const attemptId = urlParams.get('attempt') || window.location.pathname;
+        if (lastProcessedReviewAttempt === attemptId) return;
 
         // Check for multi-page review pagination: expand to show all questions on one page if available
         const showAllLink = document.querySelector('a[href*="review.php"][href*="showall=1"], a[href*="showall=true"]');
@@ -4742,6 +4743,8 @@
 
         const harvested = harvestReviewAnswers();
         if (!harvested || !harvested.success || (harvested.harvestedCount === 0 && (harvested.eliminatedCount || 0) === 0)) return;
+
+        lastProcessedReviewAttempt = attemptId;
 
         // Auto-save verified answers and eliminated wrong choices to local subject cache
         const cacheRes = mergeAnswersIntoCache(harvested.subjectCode, harvested.questions, 'Review');
@@ -4796,107 +4799,8 @@
                 dispatchCommunityContribution(harvested.subjectCode, harvested.questions, { source: 'review_screen' });
             }, 1200);
         }
-
-        const banner = document.createElement('div');
-        banner.id = 'amaes-review-banner';
-        banner.style.cssText = `
-            margin: 15px 0;
-            padding: 12px 16px;
-            background: var(--surface, #1e293b);
-            border: 1.5px solid var(--accent-green, #10b981);
-            border-radius: 10px;
-            box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            color: var(--text-primary, #f8fafc);
-        `;
-
-        banner.innerHTML = `
-            <div style="display: flex; align-items: center; gap: 10px;">
-                <div style="background: rgba(16, 185, 129, 0.2); color: var(--accent-green, #10b981); padding: 6px; border-radius: 8px; display: flex; align-items: center;">
-                    ${ICONS.sparkles}
-                </div>
-                <div>
-                    <div style="font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px;">
-                        <span>Quiz Review Harvested:</span>
-                        <span style="color: var(--accent-green, #10b981);">${harvested.harvestedCount}/${harvested.totalQuestions} Verified • ${harvested.eliminatedCount || 0} Wrong Eliminated</span>
-                    </div>
-                    <div style="font-size: 11px; color: var(--text-secondary, #94a3b8); margin-top: 1px;">
-                        ${harvested.subjectCode} • ${harvested.gradeText || 'Saved to local storage for automatic elimination on retake!'}
-                    </div>
-                    <div style="font-size: 10px; color: #10b981; margin-top: 2px; font-weight: 600;">
-                        Safe Learning: Verified answers auto-pick on retake. Known wrong choices are crossed out and eliminated!
-                    </div>
-                </div>
-            </div>
-
-            <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <button id="btn-banner-export-json" class="amaes-banner-btn amaes-banner-btn-secondary" style="background: rgba(255,255,255,0.08); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; width: auto;" title="Download JSON file for classmates or local auto-sync">
-                    ${ICONS.download} <span>Download JSON</span>
-                </button>
-                <button id="btn-banner-copy-text" class="amaes-banner-btn amaes-banner-btn-secondary" style="background: rgba(255,255,255,0.08); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; width: auto;" title="Copy clean Q&A study sheet to share on Messenger / Discord">
-                    ${ICONS.copy} <span>Copy Study Sheet</span>
-                </button>
-                
-                <div style="display: flex; align-items: center; gap: 8px; margin-left: 6px; padding-left: 10px; border-left: 1px solid rgba(255,255,255,0.18);">
-                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: #cbd5e1; font-weight: 500; cursor: pointer;" title="Automatically download .json file whenever you open a completed review screen">
-                        <input id="chk-banner-auto-dl" type="checkbox" ${autoDlEnabled ? 'checked' : ''} style="cursor: pointer;" />
-                        <span>Auto-DL</span>
-                    </label>
-                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: #cbd5e1; font-weight: 500; cursor: pointer;" title="Automatically share verified answers with Community Hub in background">
-                        <input id="chk-banner-auto-share" type="checkbox" ${autoShareEnabled ? 'checked' : ''} style="cursor: pointer;" />
-                        <span>Auto-Share</span>
-                    </label>
-                </div>
-            </div>
-        `;
-
-        const target = document.querySelector('#region-main .quizreviewsummary, #region-main, .course-content');
-        if (target) {
-            target.parentElement.insertBefore(banner, target.nextSibling);
-        }
-
-        // Banner Action Handlers
-        const btnBannerHub = document.getElementById('btn-banner-contribute-hub');
-        if (btnBannerHub) {
-            btnBannerHub.onclick = () => {
-                showCommunityContributionModal(harvested.subjectCode);
-            };
-        }
-
-        const _el__btn_banner_export_json_ = document.getElementById('btn-banner-export-json');
-        if (_el__btn_banner_export_json_) _el__btn_banner_export_json_.onclick = () => {;
-            const json = exportAnswersAsJSON(harvested);
-            const filename = `${harvested.subjectCode}_${harvested.quizTitle.replace(/[^a-zA-Z0-9_-]/g, '_')}_Answers.json`;
-            downloadJsonFile(filename, json);
-            showToast(`Exported ${filename}`);
-        };
-
-        const _el__btn_banner_copy_text_ = document.getElementById('btn-banner-copy-text');
-        if (_el__btn_banner_copy_text_) _el__btn_banner_copy_text_.onclick = async () => {;
-            const text = formatAnswersAsStudyGuide(harvested);
-            await copyToClipboard(text);
-            showToast('Study sheet copied to clipboard! (Ready for Messenger/Discord)');
-        };
-
-        const _el__chk_banner_auto_dl_ = document.getElementById('chk-banner-auto-dl');
-        if (_el__chk_banner_auto_dl_) _el__chk_banner_auto_dl_.onchange = (e) => {;
-            localStorage.setItem('amaes_auto_dl_json', e.target.checked);
-            showToast(`Auto-download JSON: ${e.target.checked ? 'Enabled' : 'Disabled'}`);
-        };
-
-        const _el__chk_banner_auto_share_ = document.getElementById('chk-banner-auto-share');
-        if (_el__chk_banner_auto_share_) _el__chk_banner_auto_share_.onchange = (e) => {;
-            const checked = e.target.checked;
-            autoCommunityShare = checked;
-            localStorage.setItem('amaes_auto_community_share', checked);
-            showToast(`Auto-share to Community Hub: ${checked ? 'Enabled' : 'Disabled'}`);
-        };
     }
+    const injectReviewScreenBanner = handleQuizReviewPageLoad;
 
     // Helper to retrieve all locally cached subject databases
     function getAllSavedSubjectDatabases() {
@@ -6306,51 +6210,6 @@
                     background: transparent !important;
                     outline: none !important;
                     padding: 0 !important;
-                }
-
-                /* Review Banner Action Buttons */
-                .amaes-banner-btn {
-                    display: inline-flex !important;
-                    align-items: center !important;
-                    justify-content: center !important;
-                    gap: 6px !important;
-                    width: auto !important;
-                    height: 28px !important;
-                    padding: 0 12px !important;
-                    font-size: 11px !important;
-                    font-weight: 600 !important;
-                    border-radius: 6px !important;
-                    cursor: pointer !important;
-                    white-space: nowrap !important;
-                    box-sizing: border-box !important;
-                    transition: all 0.15s ease !important;
-                    line-height: 1 !important;
-                    text-decoration: none !important;
-                }
-                .amaes-banner-btn svg {
-                    width: 13px !important;
-                    height: 13px !important;
-                    flex-shrink: 0 !important;
-                }
-                .amaes-banner-btn-primary {
-                    background: #2563eb !important;
-                    color: #ffffff !important;
-                    border: 1px solid #3b82f6 !important;
-                    box-shadow: 0 1px 3px rgba(37,99,235,0.3) !important;
-                }
-                .amaes-banner-btn-primary:hover {
-                    background: #1d4ed8 !important;
-                    border-color: #2563eb !important;
-                }
-                .amaes-banner-btn-secondary {
-                    background: rgba(255, 255, 255, 0.08) !important;
-                    color: #f1f5f9 !important;
-                    border: 1px solid rgba(255, 255, 255, 0.2) !important;
-                }
-                .amaes-banner-btn-secondary:hover {
-                    background: rgba(255, 255, 255, 0.16) !important;
-                    border-color: rgba(255, 255, 255, 0.35) !important;
-                    color: #ffffff !important;
                 }
 
                 #amaes-header {
