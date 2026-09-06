@@ -1,22 +1,22 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.4.2
-// @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
-// @author       Anonymous / Open LMS Contributor
-// @match        https://semestral.amaes.com/*
+// @version      1.4.3
+// @description  Universal Study Toolkit for AMA Online Education (AMAOEd / AMAES) Moodle portals. Features Auto-Harvesting with Dynamic Fallback, Multi-Course Grades Harvester, AI Prompt Formatter, Cross-Attempt Database, Cloud Sync, and Auto-Quiz Solver.
+// @author       Ry
+// @match        https://*.amaes.com/*
+// @match        https://*.amauonline.com/*
 // @updateURL    https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js
 // @downloadURL  https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js
 // @grant        GM_xmlhttpRequest
-// @grant        GM.xmlHttpRequest
 // @grant        GM_setClipboard
-// @connect      amauoed.com
+// @grant        GM_setValue
+// @grant        GM_getValue
 // @connect      raw.githubusercontent.com
-// @connect      githubusercontent.com
-// @connect      gist.githubusercontent.com
 // @connect      api.github.com
+// @connect      amauoed.com
 // @connect      *
-// @run-at       document-idle
+// @run-at       document-end
 // ==/UserScript==
 
 (function () {
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.4.2";
+    const SCRIPT_VERSION = "v1.4.3";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2085,34 +2085,41 @@
             // Co-Pilot: Auto-Pick & Next IF Known, WAIT if Unknown
                 // Case A: 100% of questions on this page were verified & answered by database!
                 if (unverifiedQuestions.length === 0 && res.total > 0) {
-                    setLog(`All <b>${res.total}</b> question(s) verified & picked!`, "var(--accent-green)");
+                    const allAnswered = areAllPageQuestionsAnswered();
+                    if (allAnswered) {
+                        setLog(`All <b>${res.total}</b> question(s) verified & picked!`, "var(--accent-green)");
 
-                    if (autoNextQuiz && nextBtn) {
-                        const btnText = (nextBtn.value || nextBtn.innerText || '').toLowerCase();
-                        const isFinish = btnText.includes('finish') || btnText.includes('submit');
+                        // Answered by Auto-Quiz: automatically advance to next page!
+                        if (nextBtn) {
+                            const btnText = (nextBtn.value || nextBtn.innerText || '').toLowerCase();
+                            const isFinish = btnText.includes('finish') || btnText.includes('submit');
 
-                        clearTimeout(autoNextTimer);
-                        if (isFinish) {
-                            if (autoSubmitQuiz) {
-                                setLog(`<b>All Questions Answered!</b> Advancing to summary in 1.2s...`, "var(--accent-green)");
-                                showToast("Finishing attempt...", 3000);
-                                autoNextTimer = setTimeout(() => {
-                                    if (!autoQuizMode) return;
-                                    clickQuizNextButton(nextBtn);
-                                }, 1200);
-                            } else {
-                                setLog("<b>Last Question Answered!</b> Paused for review before final submit.", "var(--accent-green)");
-                                showToast("Last question answered! Review before submitting.", 4000);
+                            clearTimeout(autoNextTimer);
+                            if (isFinish) {
+                                if (autoSubmitQuiz) {
+                                    setLog(`<b>All Questions Answered!</b> Advancing to summary in 1.2s...`, "var(--accent-green)");
+                                    showToast("Finishing attempt...", 3000);
+                                    autoNextTimer = setTimeout(() => {
+                                        if (!autoQuizMode) return;
+                                        clickQuizNextButton(nextBtn);
+                                    }, 1200);
+                                } else {
+                                    setLog("<b>Last Question Answered!</b> Paused for review before final submit.", "var(--accent-green)");
+                                    showToast("Last question answered! Review before submitting.", 4000);
+                                }
+                                isSolverRunning = false;
+                                return;
                             }
-                            isSolverRunning = false;
-                            return;
-                        }
 
-                        setLog(`[Auto-Next] <b>Auto-Next:</b> Advancing to next question in <b>1.0s</b>...`, "var(--accent-blue)");
-                        autoNextTimer = setTimeout(() => {
-                            if (!autoQuizMode) return;
-                            clickQuizNextButton(nextBtn);
-                        }, 1000);
+                            setLog(`[Auto-Next] <b>Auto-Next:</b> Advancing to next question in <b>1.0s</b>...`, "var(--accent-blue)");
+                            autoNextTimer = setTimeout(() => {
+                                if (!autoQuizMode) return;
+                                clickQuizNextButton(nextBtn);
+                            }, 1000);
+                        }
+                    } else {
+                        // Verified choices highlighted, but not all picked (e.g. auto-pick disabled)
+                        setLog(`Verified answers found! Select your choice${autoNextQuiz ? ' (advances automatically)' : ' and click Next page'}.`, "var(--accent-blue)");
                     }
                     isSolverRunning = false;
                     return;
@@ -7269,11 +7276,11 @@
                             <input id="chk-auto-pick" type="checkbox" ${autoPickQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-Pick verified answers from DB</span>
                         </label>
-                        <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after all questions on this page are answered without confirmation">
+                        <label style="display: flex; align-items: flex-start; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after you select answers manually. Auto-Quiz always auto-advances on verified answers.">
                             <input id="chk-auto-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} style="cursor: pointer; margin-top: 2px;" />
                             <div>
-                                <span>Auto-Next page</span>
-                                <div style="font-size: 9px; color: var(--accent-amber, #f59e0b); font-weight: normal; margin-top: 1px;">⚠️ No confirmation — not recommended unless you know the flow</div>
+                                <span>Auto-Next page (on manual selection)</span>
+                                <div style="font-size: 9px; color: var(--text-muted); font-weight: normal; margin-top: 1px;">Auto-advances when you select answers manually</div>
                             </div>
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="Smart Navigation: Bypass questions already answered by auto-answer and jump straight to unanswered questions">

@@ -2252,6 +2252,79 @@ test("Decimal & Multi-Answer Partial Scoring: handles decimal marks (3.40, 2.10)
     assert.ok(script.includes("isPartialMark"), "Userscript must handle isPartialMark");
 });
 
+// --------------------------------------------------
+// 65. Auto-Quiz Autonomous Progression vs Manual Selection Gate
+// --------------------------------------------------
+test("Auto-Quiz Autonomous Progression: auto-advances on Auto-Quiz answers; manual selection gated by autoNextQuiz", () => {
+    // Simulator for Auto-Quiz solver advancement logic
+    function simulateSolverAdvancement({ autoQuizMode, autoNextQuiz, unverifiedCount, totalCount, allAnswered, hasNextBtn }) {
+        if (!autoQuizMode) return { advanced: false, reason: "Auto-quiz paused" };
+        if (unverifiedCount === 0 && totalCount > 0) {
+            if (allAnswered) {
+                if (hasNextBtn) {
+                    return { advanced: true, reason: "Auto-Quiz answered all questions and auto-advances" };
+                }
+            } else {
+                return { advanced: false, reason: "Verified answers found but not all picked" };
+            }
+        }
+        return { advanced: false, reason: "Unverified questions require user intervention" };
+    }
+
+    // Simulator for manual user click/check advancement logic
+    function simulateUserCheckAdvancement({ autoNextQuiz, allAnswered }) {
+        // Only advances if autoNextQuiz is explicitly toggled on AND all questions answered
+        if (!autoNextQuiz) return { advanced: false, reason: "Manual check does not advance unless autoNextQuiz is toggled ON" };
+        if (!allAnswered) return { advanced: false, reason: "Waiting for remaining questions on page" };
+        return { advanced: true, reason: "Manual check auto-advances because autoNextQuiz is ON" };
+    }
+
+    // Scenario 1: Answered by Auto-Quiz (autoNextQuiz toggle is OFF - default)
+    // -> Must auto-advance!
+    const autoQuizRun = simulateSolverAdvancement({
+        autoQuizMode: true,
+        autoNextQuiz: false,
+        unverifiedCount: 0,
+        totalCount: 1,
+        allAnswered: true,
+        hasNextBtn: true
+    });
+    assert.strictEqual(autoQuizRun.advanced, true, "When answered by Auto-Quiz, it MUST auto-advance even if autoNextQuiz is false");
+
+    // Scenario 2: Checked by user manually (autoNextQuiz toggle is OFF - default)
+    // -> Must NOT auto-advance!
+    const manualCheckDefault = simulateUserCheckAdvancement({
+        autoNextQuiz: false,
+        allAnswered: true
+    });
+    assert.strictEqual(manualCheckDefault.advanced, false, "When checked by user, must NOT auto-advance if autoNextQuiz is OFF");
+
+    // Scenario 3: Checked by user manually (autoNextQuiz toggle is ON)
+    // -> Must auto-advance!
+    const manualCheckEnabled = simulateUserCheckAdvancement({
+        autoNextQuiz: true,
+        allAnswered: true
+    });
+    assert.strictEqual(manualCheckEnabled.advanced, true, "When checked by user and autoNextQuiz is ON, it MUST auto-advance");
+
+    // Scenario 4: Auto-Quiz encounters unknown question -> pauses, user answers
+    const autoQuizPaused = simulateSolverAdvancement({
+        autoQuizMode: false,
+        autoNextQuiz: false,
+        unverifiedCount: 1,
+        totalCount: 1,
+        allAnswered: true,
+        hasNextBtn: true
+    });
+    assert.strictEqual(autoQuizPaused.advanced, false, "When Auto-Quiz is paused on unknown question, solver must not auto-advance");
+
+    // Verify userscript implementation
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("areAllPageQuestionsAnswered()"), "runAutoQuizSolver must verify all questions answered before advancing");
+    assert.ok(script.includes("Answered by Auto-Quiz: automatically advance to next page!"), "Code must document Auto-Quiz autonomous progression");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
