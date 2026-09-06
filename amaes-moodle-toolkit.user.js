@@ -4240,10 +4240,10 @@
                 </div>
             `;
 
-            const closeBtn = document.getElementById('amaes-contribute-close-btn');
+            const closeBtn = modal.querySelector('#amaes-contribute-close-btn');
             if (closeBtn) closeBtn.onclick = () => modal.remove();
 
-            const selectEl = document.getElementById('amaes-contribute-sub-select');
+            const selectEl = modal.querySelector('#amaes-contribute-sub-select');
             if (selectEl) {
                 selectEl.onchange = (e) => {
                     targetCode = e.target.value;
@@ -4251,20 +4251,22 @@
                 };
             }
 
-            const copyBtn = document.getElementById('amaes-contribute-copy-btn');
+            const copyBtn = modal.querySelector('#amaes-contribute-copy-btn');
             if (copyBtn) {
                 copyBtn.onclick = () => {
-                    const textToCopy = JSON.stringify(payload, null, 2);
-                    if (typeof GM_setClipboard !== 'undefined') {
-                        GM_setClipboard(textToCopy);
-                    } else if (navigator.clipboard) {
-                        navigator.clipboard.writeText(textToCopy);
-                    }
-                    showToast("Payload JSON copied to clipboard!");
+                    copyToClipboard(payloadStr).then(() => {
+                        showToast("Payload JSON copied to clipboard!");
+                        copyBtn.innerHTML = `${ICONS.check} <span>Copied!</span>`;
+                        setTimeout(() => {
+                            copyBtn.innerHTML = `${ICONS.copy} <span>Copy JSON</span>`;
+                        }, 2000);
+                    }).catch(() => {
+                        showToast("Failed to copy JSON");
+                    });
                 };
             }
 
-            const tokenPushBtn = document.getElementById('amaes-contribute-token-push-btn');
+            const tokenPushBtn = modal.querySelector('#amaes-contribute-token-push-btn');
             if (tokenPushBtn) {
                 tokenPushBtn.onclick = async () => {
                     tokenPushBtn.disabled = true;
@@ -4275,7 +4277,7 @@
                         });
                         showToast(`Successfully pushed ${questions.length} answers directly to GitHub!`);
                         setLog(`Successfully pushed <b>${questions.length}</b> answers directly to GitHub for <b>${targetCode}</b>!`, "var(--accent-green)");
-                        const feedbackContainer = document.getElementById('amaes-contribute-feedback-area');
+                        const feedbackContainer = modal.querySelector('#amaes-contribute-feedback-area');
                         if (feedbackContainer) {
                             feedbackContainer.style.display = 'block';
                             feedbackContainer.innerHTML = `
@@ -4297,21 +4299,31 @@
                 };
             }
 
-            const submitBtn = document.getElementById('amaes-contribute-submit-btn');
+            const submitBtn = modal.querySelector('#amaes-contribute-submit-btn');
             if (submitBtn) {
                 submitBtn.onclick = () => {
                     if (!questions || questions.length === 0) {
                         alert("No questions found for this subject to submit.");
                         return;
                     }
+
                     const issueTitle = `[Contribution] ${targetCode} (${questions.length} questions)`;
-                    const issueBody = `### Community Answer Contribution\n\n**Subject**: ${targetCode}\n**Total Questions**: ${questions.length}\n**Submitted At**: ${new Date().toISOString()}\n\n\`\`\`json\n${payloadStr}\n\`\`\`\n`;
+                    let issueBody = `### Community Answer Contribution\n\n**Subject**: ${targetCode}\n**Total Questions**: ${questions.length}\n**Submitted At**: ${new Date().toISOString()}\n\n\`\`\`json\n${payloadStr}\n\`\`\`\n`;
+                    let autoCopied = false;
+
+                    // If URL query string exceeds safe browser/HTTP limits (~3500 chars), auto-copy full JSON and provide clean paste prompt
+                    if (encodeURIComponent(issueBody).length > 3500) {
+                        copyToClipboard(payloadStr);
+                        autoCopied = true;
+                        issueBody = `### Community Answer Contribution\n\n**Subject**: ${targetCode}\n**Total Questions**: ${questions.length}\n**Submitted At**: ${new Date().toISOString()}\n\n> [!NOTE]\n> The JSON payload (${questions.length} questions) was automatically copied to your clipboard!\n> Simply press **Ctrl + V** (or Cmd + V) below inside this text box to paste it, then click **"Submit new issue"**.\n\n\`\`\`json\nPASTE_HERE\n\`\`\`\n`;
+                    }
+
                     const ghUrl = `https://github.com/lms-study-hub/database/issues/new?title=${encodeURIComponent(issueTitle)}&body=${encodeURIComponent(issueBody)}&labels=community-contribution`;
                     
-                    const newWin = window.open(ghUrl, '_blank');
+                    window.open(ghUrl, '_blank');
 
                     // Provide immediate, unmissable in-modal feedback
-                    const feedbackContainer = document.getElementById('amaes-contribute-feedback-area');
+                    const feedbackContainer = modal.querySelector('#amaes-contribute-feedback-area');
                     if (feedbackContainer) {
                         feedbackContainer.style.display = 'block';
                         feedbackContainer.innerHTML = `
@@ -4320,7 +4332,7 @@
                                     ${ICONS.checkCircle} <span>Submission Page Opened in New Tab!</span>
                                 </div>
                                 <div style="font-size: 11px; color: #e2e8f0; margin-top: 4px; line-height: 1.45;">
-                                    <b>Final Step:</b> Go to the newly opened GitHub tab and click the green <b>"Submit new issue"</b> button. The automated bot will merge your answers into the cloud database within 60 seconds!
+                                    ${autoCopied ? `<b>Payload Copied!</b> Your ${questions.length} questions were auto-copied to your clipboard. Go to the new GitHub tab, press <b>Ctrl + V</b> in the box, and click <b>"Submit new issue"</b>!` : `<b>Final Step:</b> Go to the newly opened GitHub tab and click the green <b>"Submit new issue"</b> button. The automated bot will merge your answers into the cloud database within 60 seconds!`}
                                 </div>
                                 <div style="margin-top: 8px; display: flex; gap: 8px; align-items: center;">
                                     <a href="${ghUrl}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-blue" style="font-size: 10px; padding: 4px 10px; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
@@ -4330,14 +4342,14 @@
                             </div>
                         `;
                     }
-                    showToast("GitHub submission page opened!");
+                    showToast(autoCopied ? "JSON auto-copied! GitHub opened." : "GitHub submission page opened!");
                     setLog(`Opened GitHub community submission page for <b>${targetCode}</b>`, "var(--accent-green)");
                 };
             }
         }
 
-        renderModal();
         document.body.appendChild(modal);
+        renderModal();
     }
 
     // ==========================================
