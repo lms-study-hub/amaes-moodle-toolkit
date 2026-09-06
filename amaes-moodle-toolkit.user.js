@@ -496,6 +496,7 @@
             const el = document.getElementById(id);
             if (el) el.checked = val;
         };
+        updateCheck('chk-auto-cloud-sync', true);
         updateCheck('chk-auto-hl-quiz', true);
         updateCheck('chk-auto-copy-ai', true);
         updateCheck('chk-smart-skip', true);
@@ -3499,6 +3500,17 @@
         });
     }
 
+    async function autoFetchCloudAnswersIfMissing(code) {
+        if (!code || code === 'DEFAULT' || code === 'GENERAL') return false;
+        try {
+            const res = await syncAnswersFromCloud(code);
+            return res && res.count > 0;
+        } catch (e) {
+            logDebug(`autoFetchCloudAnswersIfMissing note for ${code}: ${e.message}`);
+            return false;
+        }
+    }
+
     function parseIncomingAnswerPayload(payload, defaultSubCode) {
         let list = [];
         if (Array.isArray(payload)) {
@@ -4708,7 +4720,11 @@
                     </button>
 
                     <!-- Auto Settings for Review / Sync -->
-                    <div style="display: flex; flex-direction: column; gap: 3px; background: var(--surface-subtle); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+                    <div style="display: flex; flex-direction: column; gap: 4px; background: var(--surface-subtle); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically pull and sync verified community answers when opening a course page">
+                            <input id="chk-auto-cloud-sync" type="checkbox" ${autoCloudSync ? 'checked' : ''} style="cursor: pointer;" />
+                            <span style="font-weight: 600; color: var(--text-primary);">Auto-pull community answers on course open</span>
+                        </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically highlight verified answers whenever you navigate to a quiz page">
                             <input id="chk-auto-hl-quiz" type="checkbox" ${autoHighlightQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-highlight on quiz open</span>
@@ -6121,6 +6137,16 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
             };
         }
 
+        const chkAutoCloudSync = document.getElementById('chk-auto-cloud-sync');
+        if (chkAutoCloudSync) {
+            chkAutoCloudSync.onchange = (e) => {
+                autoCloudSync = e.target.checked;
+                localStorage.setItem('amaes_auto_cloud_sync', autoCloudSync);
+                showToast(`Auto-pull community answers: ${autoCloudSync ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-pull community answers on course open: <b>${autoCloudSync ? 'ON' : 'OFF'}</b>`, autoCloudSync ? "var(--accent-green)" : "var(--accent-amber)");
+            };
+        }
+
         if (chkAutoDlJson) {
             chkAutoDlJson.onchange = (e) => {
                 localStorage.setItem('amaes_auto_dl_json', e.target.checked);
@@ -6429,14 +6455,19 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
             try {
                 const cInfo = detectCourseInfo();
                 const sc = cInfo ? cInfo.subjectCode : null;
-                if (sc && sc !== 'GENERAL' && !sessionStorage.getItem(`amaes_cloud_synced_${sc}`)) {
+                if (sc && sc !== 'GENERAL' && sc !== 'DEFAULT' && !sessionStorage.getItem(`amaes_cloud_synced_${sc}`)) {
                     sessionStorage.setItem(`amaes_cloud_synced_${sc}`, '1');
+                    setLog(`Auto-syncing community database for <b>${sc}</b>...`, "var(--accent-blue)");
                     syncAnswersFromCloud(sc).then(res => {
                         if (res && res.count > 0) {
-                            logDebug(`Auto-synced ${res.count} community answers for ${sc}`);
+                            showToast(`Auto-synced ${res.count} community answers for ${sc}!`);
+                            setLog(`Auto-synced <b>${res.count}</b> answers for <b>${sc}</b> from Cloud Hub.`, "var(--accent-green)");
                             const fresh = getCachedAnswers(sc);
                             const lbl = document.getElementById('fetch-btn-label');
                             if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+                            if (checkIsQuizPage()) {
+                                highlightQuizAnswers(fresh, false);
+                            }
                         }
                     }).catch(err => {
                         logDebug(`Auto cloud sync note for ${sc}: ${err.message}`);
