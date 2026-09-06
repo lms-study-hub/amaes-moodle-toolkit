@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.8
+// @version      1.3.9
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.8";
+    const SCRIPT_VERSION = "v1.3.9";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -5937,10 +5937,26 @@
             const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Correct"], .outcome .fa-check, .outcome .correct');
             const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Incorrect"], .outcome .fa-remove, .outcome .fa-times');
 
-            const isVerified = Boolean((harvestedItem && harvestedItem.verified) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)));
-            const isDeduced = Boolean((harvestedItem && harvestedItem.deduced) || (dbEntry && dbEntry.deduced));
-            const ansText = (harvestedItem && harvestedItem.ansRaw) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)) || '';
+            const rightElem = que.querySelector('.rightanswer, .outcome .rightanswer');
+            const hasExplicitRightElem = Boolean(rightElem && rightElem.innerText.trim());
+
+            let ansText = (harvestedItem && harvestedItem.ansRaw) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)) || '';
             const wrongList = (harvestedItem && harvestedItem.wrongAnswers) || (dbEntry && dbEntry.wrongAnswers) || [];
+            const wrongNorms = wrongList.map(w => typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || '')));
+            const ansNorm = normalizeChoice(ansText);
+            const isDebunked = ansNorm && wrongNorms.some(w => w === ansNorm || unscriptDigits(w) === unscriptDigits(ansNorm));
+
+            if (isDebunked) {
+                ansText = '';
+                if (dbEntry && (dbEntry.ansRaw || dbEntry.answer)) {
+                    dbEntry.ansRaw = '';
+                    dbEntry.ansNorm = '';
+                    dbEntry.verified = false;
+                }
+            }
+
+            const isVerified = Boolean(!isDebunked && ansText && (hasExplicitRightElem || isFullMark || (harvestedItem && harvestedItem.verified) || (dbEntry && dbEntry.verified)));
+            const isDeduced = Boolean((harvestedItem && harvestedItem.deduced) || (dbEntry && dbEntry.deduced));
 
             const infoCol = que.querySelector('.info');
             const contentCol = que.querySelector('.content');
@@ -6056,6 +6072,39 @@
                 const wrongText = wrongList.map(w => typeof w === 'string' ? w : w.text).join(', ') || 'Choice';
                 pill.title = `Wrong choice "${wrongText}" eliminated in database. Will not be selected on next attempt!`;
                 pill.innerHTML = `${ICONS.xCircle} <span>Wrong Choice Saved</span>`;
+
+                const outcomeBox = que.querySelector('.outcome');
+                if (outcomeBox) {
+                    let banner = outcomeBox.querySelector('.amaes-review-outcome-banner');
+                    if (!banner) {
+                        banner = document.createElement('div');
+                        banner.className = 'amaes-review-outcome-banner';
+                        outcomeBox.appendChild(banner);
+                    }
+                    banner.style.cssText = `
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 8px;
+                        margin-top: 8px;
+                        padding: 6px 12px;
+                        border-radius: 6px;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        background: rgba(239, 68, 68, 0.12);
+                        border: 1px solid rgba(239, 68, 68, 0.35);
+                        color: #991b1b;
+                    `;
+                    banner.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${ICONS.xCircle}
+                            <span><b>Eliminated:</b> &ldquo;${escapeHtml(wrongText)}&rdquo; (Confirmed Incorrect)</span>
+                        </div>
+                        <span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; background: rgba(239, 68, 68, 0.25);">
+                            ELIMINATED IN DB
+                        </span>
+                    `;
+                }
             }
         });
     }
