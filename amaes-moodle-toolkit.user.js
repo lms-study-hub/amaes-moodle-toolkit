@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.7
+// @version      1.0.8
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.7";
+    const SCRIPT_VERSION = "v1.0.8";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -551,6 +551,49 @@
         showToast("Settings reset to safe defaults!");
     }
 
+    // Helper to detect academic term from activity title, quiz name, or text
+    function detectTermFromText(text) {
+        if (!text || typeof text !== 'string') return null;
+        const lower = text.toLowerCase();
+        if (lower.includes('prelim') || lower.includes('preliminary') || /\bweek\s*[1-5]\b/i.test(lower)) {
+            return 'Prelim';
+        }
+        if (lower.includes('midterm') || lower.includes('mid-term') || /\bweek\s*[6-9]\b/i.test(lower)) {
+            return 'Midterm';
+        }
+        if (lower.includes('prefi') || lower.includes('pre-final') || lower.includes('prefinal') || /\bweek\s*(1[0-4])\b/i.test(lower)) {
+            return 'Prefi';
+        }
+        if (lower.includes('final') || lower.includes('finals') || /\bweek\s*(1[5-9]|20)\b/i.test(lower)) {
+            return 'Final';
+        }
+        return null;
+    }
+
+    // Calculates answer count breakdown per term (Prelim, Midterm, Prefi, Final)
+    function getSubjectTermBreakdown(subCode) {
+        const questions = getCachedAnswers(subCode) || [];
+        const stats = {
+            prelim: 0,
+            midterm: 0,
+            prefi: 0,
+            final: 0,
+            general: 0,
+            total: questions.length
+        };
+
+        questions.forEach(q => {
+            const term = q.period || q.term || detectTermFromText(q.sourceQuiz || q.quizTitle || q.question || q.qRaw || '');
+            if (term === 'Prelim') stats.prelim++;
+            else if (term === 'Midterm') stats.midterm++;
+            else if (term === 'Prefi') stats.prefi++;
+            else if (term === 'Final') stats.final++;
+            else stats.general++;
+        });
+
+        return stats;
+    }
+
     // Injects verified DB indicators on home/dashboard course cards
     function injectDashboardCourseBadges() {
         if (!isUserLoggedIn()) return;
@@ -575,7 +618,7 @@
             if (!cardText) return;
 
             let subCode = '';
-            const codeMatch = cardText.match(/-\s*([A-Za-z0-9]+)/) || cardText.match(/\b([A-Za-z]{2,6}\d{3,4}[A-Za-z]*)\b/);
+            const codeMatch = cardText.match(/-\s*([A-Za-z0-9]+) /) || cardText.match(/\b([A-Za-z]{2,6}\d{3,4}[A-Za-z]*)\b/);
             if (codeMatch) {
                 subCode = codeMatch[1].toUpperCase();
             }
@@ -584,6 +627,12 @@
 
             const cached = getCachedAnswers(subCode);
             const count = cached ? cached.length : 0;
+            const termStats = getSubjectTermBreakdown(subCode);
+            const readyTerms = [];
+            if (termStats.prelim > 0) readyTerms.push('Prelim');
+            if (termStats.midterm > 0) readyTerms.push('Mid');
+            if (termStats.prefi > 0) readyTerms.push('Prefi');
+            if (termStats.final > 0) readyTerms.push('Final');
 
             const badge = document.createElement('div');
             badge.className = 'amaes-home-db-badge';
@@ -600,16 +649,19 @@
                 transition: transform 0.15s ease, background 0.15s ease;
                 user-select: none;
                 z-index: 10;
-                ${count >= 100 
+                ${count >= 100 || readyTerms.length === 4
                     ? 'background: rgba(16, 185, 129, 0.2); border: 1.5px solid #10b981; color: #10b981;' 
                     : count > 0 
                     ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.35); color: #34d399;' 
                     : 'background: rgba(148, 163, 184, 0.12); border: 1px solid rgba(148, 163, 184, 0.25); color: #94a3b8;'}
             `;
 
-            if (count >= 100) {
-                badge.innerHTML = `${ICONS.checkBadge} <span><b>100% Exam Ready</b> • ${count} Qs</span>`;
-                badge.title = `${subCode}: Complete question bank stored (${count} verified questions)`;
+            if (readyTerms.length === 4 || count >= 100) {
+                badge.innerHTML = `${ICONS.checkBadge} <span><b>All Terms Ready</b> • ${count} Qs</span>`;
+                badge.title = `${subCode}: Complete question bank covering Prelim, Midterm, Prefi & Final (${count} verified questions)`;
+            } else if (readyTerms.length > 0) {
+                badge.innerHTML = `${ICONS.database} <span><b>${readyTerms.join('/')} Ready</b> • ${count} Qs</span>`;
+                badge.title = `${subCode}: ${readyTerms.join(', ')} covered (${count} questions). Click to open DB.`;
             } else if (count > 0) {
                 badge.innerHTML = `${ICONS.database} <span><b>Verified DB</b> • ${count} Qs</span>`;
                 badge.title = `${subCode}: ${count} questions verified in local DB. Click to view.`;
@@ -1663,10 +1715,16 @@
 
         const courseInfo = detectCourseInfo();
         const subCode = courseInfo.subjectCode || 'CS6301';
+        const detectedQuizTerm = detectTermFromText(courseInfo.currentActivityTitle || document.title || '');
         const cached = getCachedAnswers(subCode);
         const hasDb = cached && cached.length > 0;
         const verifiedCount = cached ? cached.filter(q => q.ansRaw || q.answer).length : 0;
         const eliminatedCount = cached ? cached.reduce((acc, q) => acc + (Array.isArray(q.wrongAnswers) ? q.wrongAnswers.length : 0), 0) : 0;
+        const termStats = getSubjectTermBreakdown(subCode);
+        const termCount = detectedQuizTerm === 'Prelim' ? termStats.prelim :
+                          detectedQuizTerm === 'Midterm' ? termStats.midterm :
+                          detectedQuizTerm === 'Prefi' ? termStats.prefi :
+                          detectedQuizTerm === 'Final' ? termStats.final : 0;
         const navState = getQuizNavQuestionStates();
 
         const hud = document.createElement('div');
@@ -1714,10 +1772,10 @@
                 display: flex;
                 align-items: center;
                 gap: 4px;
-            " title="${hasDb ? `${verifiedCount} verified answers & ${eliminatedCount} eliminated choices stored in DB for ${subCode}` : `No database answers found for ${subCode}`}">
+            " title="${hasDb ? `${subCode} DB: ${verifiedCount} total verified answers & ${eliminatedCount} eliminated choices stored${detectedQuizTerm ? ` (${termCount} for ${detectedQuizTerm})` : ''}` : `No database answers found for ${subCode}`}">
                 <span>${hasDb ? 'DB' : 'No DB'}</span>
-                <span>${subCode}</span>
-                <span>(${verifiedCount}${eliminatedCount > 0 ? ` • ${eliminatedCount} Elim` : ''})</span>
+                <span>${subCode}${detectedQuizTerm ? ` • ${detectedQuizTerm}` : ''}</span>
+                <span>(${termCount > 0 ? `${termCount} Qs` : `${verifiedCount} Qs`}${eliminatedCount > 0 ? ` • ${eliminatedCount} Elim` : ''})</span>
             </div>
 
             <!-- Start / Pause Button -->
@@ -3227,6 +3285,8 @@
                     ansNorm: ansNorm,
                     choices: newItem.choices || [],
                     verified: Boolean(newItem.verified),
+                    period: newItem.period || newItem.term || detectTermFromText(newItem.quizTitle || newItem.qRaw || '') || 'General',
+                    quizTitle: newItem.quizTitle || '',
                     wrongAnswers: incomingWrong,
                     confirmations: ansRaw ? 1 : 0,
                     sources: [sourceLabel]
@@ -3253,6 +3313,10 @@
                 const cur = existing[idx];
                 cur.sources = cur.sources || [];
                 if (!cur.sources.includes(sourceLabel)) cur.sources.push(sourceLabel);
+                if ((!cur.period || cur.period === 'General') && newItem.period && newItem.period !== 'General') {
+                    cur.period = newItem.period;
+                }
+                if (!cur.quizTitle && newItem.quizTitle) cur.quizTitle = newItem.quizTitle;
 
                 if (!Array.isArray(cur.wrongAnswers)) {
                     cur.wrongAnswers = normalizeWrongAnswers(cur.wrongAnswers);
@@ -3719,6 +3783,7 @@
             if (rightAnswer || wrongAnswers.length > 0) {
                 if (rightAnswer) correctCount++;
                 eliminatedTotal += wrongAnswers.length;
+                const detectedPeriod = detectTermFromText(quizTitle) || detectTermFromText(courseInfo.currentActivityTitle) || 'General';
                 harvested.push({
                     index: idx + 1,
                     qRaw: qData.qText,
@@ -3727,7 +3792,9 @@
                     ansNorm: normalizeChoice(rightAnswer),
                     wrongAnswers: normalizeWrongAnswers(wrongAnswers),
                     choices: qData.choices,
-                    verified: isVerified
+                    verified: isVerified,
+                    period: detectedPeriod,
+                    quizTitle: quizTitle
                 });
             }
         });
@@ -4767,6 +4834,19 @@
                             </select>
                         </div>
                     ` : ''}
+
+                    <!-- Term Coverage Breakdown Card -->
+                    <div id="amaes-term-coverage-card" style="background: rgba(0,0,0,0.2); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle); display: flex; flex-direction: column; gap: 4px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; font-size: 10px; font-weight: 700;">
+                            <span style="color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+                                ${ICONS.target} <span>Term Coverage:</span>
+                            </span>
+                            <span id="amaes-term-summary" style="font-size: 9.5px; color: var(--accent-green);">Loading...</span>
+                        </div>
+                        <div id="amaes-term-pills" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px;">
+                            <!-- Populated dynamically by updateTermCoverageUI -->
+                        </div>
+                    </div>
 
                     <!-- Primary 1-Click Actions: Pull & Share -->
                     <div style="display: flex; gap: 5px;">
@@ -5892,11 +5972,57 @@
             }
         }
 
+        function updateTermCoverageUI(code) {
+            const targetCode = code || subCode;
+            const summaryEl = document.getElementById('amaes-term-summary');
+            const pillsEl = document.getElementById('amaes-term-pills');
+            if (!pillsEl || !summaryEl) return;
+
+            const stats = getSubjectTermBreakdown(targetCode);
+            const total = stats.total;
+
+            if (total === 0) {
+                summaryEl.innerText = "No Qs Saved";
+                summaryEl.style.color = "var(--text-muted)";
+            } else {
+                const covered = [stats.prelim > 0, stats.midterm > 0, stats.prefi > 0, stats.final > 0].filter(Boolean).length;
+                summaryEl.innerText = `${total} Qs • ${covered}/4 Terms Ready`;
+                summaryEl.style.color = covered === 4 ? "var(--accent-green)" : covered > 0 ? "var(--accent-blue)" : "var(--text-secondary)";
+            }
+
+            const terms = [
+                { name: 'Prelim', count: stats.prelim },
+                { name: 'Midterm', count: stats.midterm },
+                { name: 'Prefi', count: stats.prefi },
+                { name: 'Final', count: stats.final }
+            ];
+
+            pillsEl.innerHTML = terms.map(t => {
+                if (t.count > 0) {
+                    return `
+                        <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid #10b981; border-radius: 4px; padding: 3px 2px; text-align: center;" title="${t.name}: ${t.count} verified questions available">
+                            <div style="font-size: 8.5px; font-weight: 700; color: #10b981;">${t.name}</div>
+                            <div style="font-size: 10px; font-weight: 800; color: #34d399;">${t.count} Qs</div>
+                        </div>
+                    `;
+                } else {
+                    return `
+                        <div style="background: rgba(148, 163, 184, 0.05); border: 1px dashed rgba(148, 163, 184, 0.3); border-radius: 4px; padding: 3px 2px; text-align: center; opacity: 0.65;" title="${t.name}: No questions stored yet">
+                            <div style="font-size: 8.5px; font-weight: 600; color: var(--text-secondary);">${t.name}</div>
+                            <div style="font-size: 9.5px; font-weight: 700; color: var(--text-muted);">0 Qs</div>
+                        </div>
+                    `;
+                }
+            }).join('');
+        }
+
         if (amauoedUrlInput) {
             amauoedUrlInput.addEventListener('input', updateUrlMatchBadge);
             amauoedUrlInput.addEventListener('change', updateUrlMatchBadge);
             updateUrlMatchBadge();
         }
+
+        updateTermCoverageUI(subCode);
 
         const selectActiveCourse = document.getElementById('amaes-select-active-course');
         if (selectActiveCourse) {
@@ -5925,6 +6051,7 @@
                 if (fetchBtnLabel) {
                     fetchBtnLabel.innerText = curAnswers ? `Refresh Database (${curAnswers.length} in DB)` : 'Fetch & Sync Database';
                 }
+                updateTermCoverageUI(subCode);
                 setLog(`Active subject switched to <b>${subCode}</b> (${(curAnswers || []).length} cached answers).`, "var(--accent-blue)");
             };
         }
@@ -6006,6 +6133,7 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                 if (questions.length > 0) {
                     setCachedAnswers(subCode, questions);
                     fetchBtnLabel.innerText = `Refresh Answers (${questions.length} cached)`;
+                    updateTermCoverageUI(subCode);
                     setLog(`Successfully cached <b>${questions.length}</b> questions from amauoed! Tip: Enable <b>Auto-Pick</b> or use <b>1-4 / Space</b> keys to solve fast.`, "var(--accent-green)");
 
                     // If currently on a quiz, trigger highlight immediately!
@@ -6149,6 +6277,8 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                     fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
                 }
 
+                updateTermCoverageUI(subCode);
+
                 if (checkIsQuizPage()) {
                     highlightQuizAnswers(finalDb, false);
                 }
@@ -6189,6 +6319,8 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                     if (fetchBtnLabel) {
                         fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
                     }
+
+                    updateTermCoverageUI(targetCode);
 
                     if (checkIsQuizPage()) {
                         highlightQuizAnswers(finalDb, false);
