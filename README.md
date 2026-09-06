@@ -1,29 +1,29 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.2.3-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.2.3)
+[![Version](https://img.shields.io/badge/version-1.2.4-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.2.4)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 
-> **Version 1.2.3** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.2.4** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
-## 🚀 One-Click Install & Update
+## One-Click Install & Update
 
-> 📖 **Need step-by-step help?** Check the dedicated **[Installation & Browser Setup Guide (INSTALL.md)](INSTALL.md)**.
+> **Need step-by-step help?** Check the dedicated **[Installation & Browser Setup Guide (INSTALL.md)](INSTALL.md)**.
 
 ### New Users
 1. **Install a Userscript Extension**:
    - **[Violentmonkey (Recommended)](https://violentmonkey.github.io/)** — Fast, lightweight, open-source. Available for [Chrome/Brave](https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag), [Firefox](https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/), and [Edge](https://microsoftedge.microsoft.com/addons/detail/violentmonkey/eeagobfjfgddacbcigncyclcoaebeent).
    - *(Alternative: [Tampermonkey](https://www.tampermonkey.net/))*.
 
-2. ⚠️ **CRUCIAL STEP: Enable "Developer Mode" (Chrome, Brave, Edge, Opera)**:
+2. **CRUCIAL STEP: Enable "Developer Mode" (Chrome, Brave, Edge, Opera)**:
    > Chromium Manifest V3 blocks userscripts unless Developer Mode is enabled!
    > - Open `chrome://extensions` (or `edge://extensions` / `brave://extensions`).
    > - Toggle **"Developer mode"** in the top-right corner to **ON**.
 
-3. **[👉 Click Here to Install `amaes-moodle-toolkit.user.js`](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)**:
+3. **[Click Here to Install `amaes-moodle-toolkit.user.js`](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)**:
    - Violentmonkey will open a tab with the script details. Click **"Confirm installation"**.
 
 4. Visit **[AMAES Moodle Portal](https://semestral.amaes.com/)**. The toolkit panel will automatically dock in the bottom-right corner!
@@ -32,7 +32,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey / Violentmonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Extensions will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.2.3`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
+- **On-Demand Check**: Click the version badge (`v1.2.4`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
 
 ---
 

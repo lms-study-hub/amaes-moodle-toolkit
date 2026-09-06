@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.3
+// @version      1.2.4
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.3";
+    const SCRIPT_VERSION = "v1.2.4";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -4368,219 +4368,228 @@
     }
 
     // Background Grades Report Answer Harvester
+    let isHarvestingInProgress = false;
     async function executeGradesHarvester(statusCallback) {
-        let gradesDoc = document;
-        const isDirectGradesPage = window.location.pathname.includes('/grade/report/user/index.php');
-
-        if (!isDirectGradesPage) {
-            const gradesLink = document.querySelector('a[href*="/grade/report/user/index.php"]');
-            let gradesUrl = gradesLink ? gradesLink.href : null;
-
-            if (!gradesUrl) {
-                const courseInfo = detectCourseInfo();
-                const courseId = courseInfo.courseId || new URLSearchParams(window.location.search).get('id');
-                if (courseId) {
-                    const pathParts = window.location.pathname.split('/');
-                    const basePrefix = pathParts.length > 2 && pathParts[1] ? `/${pathParts[1]}` : '';
-                    gradesUrl = `${window.location.origin}${basePrefix}/grade/report/user/index.php?id=${courseId}`;
-                }
-            }
-
-            if (!gradesUrl) {
-                showToast("Open a course or Grades page first to scan completed quizzes!");
-                return { success: false, error: 'No grades URL found' };
-            }
-
-            showToast("Fetching course Grade Report in background...", 2500);
-            setLog("Fetching course Grade Report in background...", "var(--accent-blue)");
-
-            try {
-                const resp = await fetch(gradesUrl);
-                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-                const html = await resp.text();
-                gradesDoc = new DOMParser().parseFromString(html, 'text/html');
-            } catch (e) {
-                showToast("Could not fetch Grade Report: " + e.message);
-                return { success: false, error: e.message };
-            }
+        if (isHarvestingInProgress) {
+            showToast("Harvester is already running in background...", 2500);
+            return { success: false, inProgress: true };
         }
+        isHarvestingInProgress = true;
 
-        // Detect course subject code from table or context
-        const courseInfo = detectCourseInfo();
-        let subCode = courseInfo.subjectCode;
+        try {
+            let gradesDoc = document;
+            const isDirectGradesPage = window.location.pathname.includes('/grade/report/user/index.php');
 
-        const table = gradesDoc.querySelector('.user-grade, table[summary="User report"], .generaltable');
-        if (!table) {
-            showToast("No grade report table found.");
-            return { success: false, error: 'No grade table found' };
-        }
+            if (!isDirectGradesPage) {
+                const gradesLink = document.querySelector('a[href*="/grade/report/user/index.php"]');
+                let gradesUrl = gradesLink ? gradesLink.href : null;
 
-        if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
-            const catHeaders = table.querySelectorAll('th.category, tr.category, h2, h3, .cat_1');
-            for (const h of catHeaders) {
-                const m = (h.innerText || '').match(/(?:UGRD-|UGRD_)?([A-Z]{2,6}\d{3,4}[A-Z]?)/i);
-                if (m) {
-                    subCode = m[1].toUpperCase();
-                    break;
+                if (!gradesUrl) {
+                    const courseInfo = detectCourseInfo();
+                    const courseId = courseInfo.courseId || new URLSearchParams(window.location.search).get('id');
+                    if (courseId) {
+                        const pathParts = window.location.pathname.split('/');
+                        const basePrefix = pathParts.length > 2 && pathParts[1] ? `/${pathParts[1]}` : '';
+                        gradesUrl = `${window.location.origin}${basePrefix}/grade/report/user/index.php?id=${courseId}`;
+                    }
                 }
-            }
-        }
-        if (!subCode) subCode = 'CS6301';
 
-        // Scan all candidate rows across document or tables
-        const candidateRows = Array.from(gradesDoc.querySelectorAll('.user-grade tr, .generaltable tr, table.table tr, tr'));
-        const completedQuizzes = [];
-        const seenUrls = new Set();
+                if (!gradesUrl) {
+                    showToast("Open a course or Grades page first to scan completed quizzes!");
+                    return { success: false, error: 'No grades URL found' };
+                }
 
-        candidateRows.forEach(r => {
-            const quizLink = r.querySelector('a[href*="/mod/quiz/"], a[href*="quiz"], a.gradeitemheader')
-                          || r.querySelector('.column-itemname a, th a, td:first-child a');
-            if (!quizLink) return;
+                showToast("Fetching course Grade Report in background...", 2500);
+                setLog("Fetching course Grade Report in background...", "var(--accent-blue)");
 
-            const href = quizLink.getAttribute('href') || quizLink.href || '';
-            const rawTitle = quizLink.innerText.trim();
-            if (!rawTitle || (!href.includes('quiz') && !r.innerText.toLowerCase().includes('quiz'))) return;
-
-            // Prevent empty or unattempted rows
-            const rowText = r.innerText || '';
-            if (rowText.includes('( Empty )') || rowText.includes('(Empty)') || rowText.includes('( empty )')) return;
-
-            let fullQuizUrl = '';
-            try {
-                fullQuizUrl = new URL(href, window.location.origin).href;
-            } catch (e) {
-                fullQuizUrl = href;
-            }
-            if (!fullQuizUrl || seenUrls.has(fullQuizUrl)) return;
-
-            // Determine if the quiz has a completed grade
-            const gradeCell = r.querySelector('.column-grade, [headers*="grade"], td.grade');
-            const pctCell = r.querySelector('.column-percentage, [headers*="percentage"]');
-
-            let hasGrade = false;
-            let gradeStr = '';
-
-            if (gradeCell) {
-                const gText = gradeCell.innerText.trim();
-                if (gText && gText !== '-' && gText !== '–' && /\d/.test(gText)) {
-                    hasGrade = true;
-                    gradeStr = gText;
+                try {
+                    const resp = await fetch(gradesUrl);
+                    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                    const html = await resp.text();
+                    gradesDoc = new DOMParser().parseFromString(html, 'text/html');
+                } catch (e) {
+                    showToast("Could not fetch Grade Report: " + e.message);
+                    return { success: false, error: e.message };
                 }
             }
 
-            if (!hasGrade && pctCell) {
-                const pText = pctCell.innerText.trim();
-                if (pText && pText !== '-' && pText !== '–' && !pText.includes('0.00') && /\d/.test(pText)) {
-                    hasGrade = true;
-                    gradeStr = pText;
-                }
+            // Detect course subject code from table or context
+            const courseInfo = detectCourseInfo();
+            let subCode = courseInfo.subjectCode;
+
+            const table = gradesDoc.querySelector('.user-grade, table[summary="User report"], .generaltable');
+            if (!table) {
+                showToast("No grade report table found.");
+                return { success: false, error: 'No grade table found' };
             }
 
-            if (!hasGrade) {
-                const cells = Array.from(r.querySelectorAll('td, th'));
-                for (const c of cells) {
-                    if (c.contains(quizLink)) continue;
-                    const txt = c.innerText.trim();
-                    if (txt && txt !== '-' && txt !== '–' && !txt.includes('( Empty )') && !txt.includes('0.00 %') && !txt.startsWith('0-') && !txt.startsWith('0–') && /\b\d+(\.\d+)?\b/.test(txt)) {
-                        hasGrade = true;
-                        gradeStr = txt;
+            if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
+                const catHeaders = table.querySelectorAll('th.category, tr.category, h2, h3, .cat_1');
+                for (const h of catHeaders) {
+                    const m = (h.innerText || '').match(/(?:UGRD-|UGRD_)?([A-Z]{2,6}\d{3,4}[A-Z]?)/i);
+                    if (m) {
+                        subCode = m[1].toUpperCase();
                         break;
                     }
                 }
             }
-
-            if (hasGrade) {
-                seenUrls.add(fullQuizUrl);
-                const cleanTitle = rawTitle.replace(/^QUIZ\s+/i, '').replace(/\s+/g, ' ').trim();
-                completedQuizzes.push({
-                    title: cleanTitle || rawTitle,
-                    url: fullQuizUrl,
-                    grade: gradeStr
-                });
+            if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
+                subCode = courseInfo.courseId ? (`COURSE_${courseInfo.courseId}`) : 'GENERAL';
             }
-        });
 
-        if (completedQuizzes.length === 0) {
-            showToast("No graded quizzes found in this report.");
-            setLog("No completed quiz attempts found in Grade Report.", "var(--accent-amber)");
-            return { success: false, count: 0 };
-        }
+            // Scan all candidate rows across document or tables
+            const candidateRows = Array.from(gradesDoc.querySelectorAll('.user-grade tr, .generaltable tr, table.table tr, tr'));
+            const completedQuizzes = [];
+            const seenUrls = new Set();
 
-        showToast(`Found ${completedQuizzes.length} completed quizzes. Harvesting answers...`, 3000);
-        setLog(`Scanning <b>${completedQuizzes.length}</b> completed quizzes for <b>${subCode}</b>...`, "var(--accent-blue)");
+            candidateRows.forEach(r => {
+                const quizLink = r.querySelector('a[href*="/mod/quiz/"], a[href*="quiz"], a.gradeitemheader')
+                              || r.querySelector('.column-itemname a, th a, td:first-child a');
+                if (!quizLink) return;
 
-        let totalHarvested = 0;
-        let allQuestions = [];
+                const href = quizLink.getAttribute('href') || quizLink.href || '';
+                const rawTitle = quizLink.innerText.trim();
+                if (!rawTitle || (!href.includes('quiz') && !r.innerText.toLowerCase().includes('quiz'))) return;
 
-        for (let i = 0; i < completedQuizzes.length; i++) {
-            const qz = completedQuizzes[i];
-            if (statusCallback) statusCallback(i + 1, completedQuizzes.length, qz.title);
-            setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b> (Score: ${qz.grade})...`, "var(--accent-cyan)");
+                // Prevent empty or unattempted rows
+                const rowText = r.innerText || '';
+                if (rowText.includes('( Empty )') || rowText.includes('(Empty)') || rowText.includes('( empty )')) return;
 
-            try {
-                const viewResp = await fetch(qz.url);
-                if (!viewResp.ok) continue;
-                const viewHtml = await viewResp.text();
-                const viewDoc = new DOMParser().parseFromString(viewHtml, 'text/html');
+                let fullQuizUrl = '';
+                try {
+                    fullQuizUrl = new URL(href, window.location.origin).href;
+                } catch (e) {
+                    fullQuizUrl = href;
+                }
+                if (!fullQuizUrl || seenUrls.has(fullQuizUrl)) return;
 
-                const reviewLinks = Array.from(viewDoc.querySelectorAll('a[href*="review.php"], a[href*="/mod/quiz/review.php"]'));
-                if (reviewLinks.length === 0) continue;
+                // Determine if the quiz has a completed grade
+                const gradeCell = r.querySelector('.column-grade, [headers*="grade"], td.grade');
+                const pctCell = r.querySelector('.column-percentage, [headers*="percentage"]');
 
-                const seenReviewUrls = new Set();
-                for (const rLink of reviewLinks) {
-                    const rawHref = rLink.getAttribute('href') || rLink.href;
-                    if (!rawHref) continue;
+                let hasGrade = false;
+                let gradeStr = '';
 
-                    let reviewUrl = '';
-                    try {
-                        reviewUrl = new URL(rawHref, qz.url).href;
-                    } catch (e) {
-                        reviewUrl = rawHref;
-                    }
-
-                    // Append showall=1 to ensure all questions in attempt load on a single page
-                    if (!reviewUrl.includes('showall=')) {
-                        reviewUrl += (reviewUrl.includes('?') ? '&' : '?') + 'showall=1';
-                    }
-
-                    if (seenReviewUrls.has(reviewUrl)) continue;
-                    seenReviewUrls.add(reviewUrl);
-
-                    const reviewResp = await fetch(reviewUrl);
-                    if (!reviewResp.ok) continue;
-                    const reviewHtml = await reviewResp.text();
-                    const reviewDoc = new DOMParser().parseFromString(reviewHtml, 'text/html');
-
-                    const res = harvestFromReviewDOM(reviewDoc, subCode, qz.title, courseInfo.fullTitle || subCode);
-                    if (res.success && res.questions.length > 0) {
-                        allQuestions.push(...res.questions);
-                        totalHarvested += res.harvestedCount;
+                if (gradeCell) {
+                    const gText = gradeCell.innerText.trim();
+                    if (gText && gText !== '-' && gText !== '–' && /\d/.test(gText)) {
+                        hasGrade = true;
+                        gradeStr = gText;
                     }
                 }
-            } catch (err) {
-                console.warn(`Error harvesting ${qz.title}:`, err);
+
+                if (!hasGrade && pctCell) {
+                    const pText = pctCell.innerText.trim();
+                    if (pText && pText !== '-' && pText !== '–' && !pText.includes('0.00') && /\d/.test(pText)) {
+                        hasGrade = true;
+                        gradeStr = pText;
+                    }
+                }
+
+                if (!hasGrade) {
+                    const cells = Array.from(r.querySelectorAll('td, th'));
+                    for (const c of cells) {
+                        if (c.contains(quizLink)) continue;
+                        const txt = c.innerText.trim();
+                        if (txt && txt !== '-' && txt !== '–' && !txt.includes('( Empty )') && !txt.includes('0.00 %') && !txt.startsWith('0-') && !txt.startsWith('0–') && /\b\d+(\.\d+)?\b/.test(txt)) {
+                            hasGrade = true;
+                            gradeStr = txt;
+                            break;
+                        }
+                    }
+                }
+
+                if (hasGrade) {
+                    seenUrls.add(fullQuizUrl);
+                    const cleanTitle = rawTitle.replace(/^QUIZ\s+/i, '').replace(/\s+/g, ' ').trim();
+                    completedQuizzes.push({
+                        title: cleanTitle || rawTitle,
+                        url: fullQuizUrl,
+                        grade: gradeStr
+                    });
+                }
+            });
+
+            if (completedQuizzes.length === 0) {
+                showToast("No graded quizzes found in this report.");
+                setLog("No completed quiz attempts found in Grade Report.", "var(--accent-amber)");
+                return { success: false, count: 0 };
             }
-        }
 
-        if (allQuestions.length > 0) {
-            mergeAnswersIntoCache(subCode, allQuestions, 'Grades-Harvester');
-            setLog(`Harvest Complete! Loaded <b>${totalHarvested}</b> verified answers from ${completedQuizzes.length} quizzes into <b>${subCode}</b> DB.`, "var(--accent-green)");
-            showToast(`Harvested ${totalHarvested} verified answers! Saved to database.`, 4000);
+            showToast(`Found ${completedQuizzes.length} completed quizzes. Harvesting answers...`, 3000);
+            setLog(`Scanning <b>${completedQuizzes.length}</b> completed quizzes for <b>${subCode}</b>...`, "var(--accent-blue)");
 
-            syncAutoQuizUI();
-            const fresh = getCachedAnswers(subCode);
-            const lbl = document.getElementById('fetch-btn-label');
-            if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+            let totalHarvested = 0;
+            let allQuestions = [];
 
-            if (autoCommunityShare) {
-                dispatchCommunityContribution(subCode, fresh || allQuestions, { source: 'grades_harvester' });
+            for (let i = 0; i < completedQuizzes.length; i++) {
+                const qz = completedQuizzes[i];
+                if (statusCallback) statusCallback(i + 1, completedQuizzes.length, qz.title);
+                setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b> (Score: ${qz.grade})...`, "var(--accent-cyan)");
+
+                try {
+                    const viewResp = await fetch(qz.url);
+                    if (!viewResp.ok) continue;
+                    const viewHtml = await viewResp.text();
+                    const viewDoc = new DOMParser().parseFromString(viewHtml, 'text/html');
+
+                    const reviewLinks = Array.from(viewDoc.querySelectorAll('a[href*="review.php"], a[href*="/mod/quiz/review.php"]'));
+                    if (reviewLinks.length === 0) continue;
+
+                    const seenReviewUrls = new Set();
+                    for (const rLink of reviewLinks) {
+                        const rawHref = rLink.getAttribute('href') || rLink.href;
+                        if (!rawHref) continue;
+
+                        let reviewUrl = '';
+                        try {
+                            reviewUrl = new URL(rawHref, qz.url).href;
+                        } catch (e) {
+                            reviewUrl = rawHref;
+                        }
+
+                        // Append showall=1 to ensure all questions in attempt load on a single page
+                        if (!reviewUrl.includes('showall=')) {
+                            reviewUrl += (reviewUrl.includes('?') ? '&' : '?') + 'showall=1';
+                        }
+
+                        if (seenReviewUrls.has(reviewUrl)) continue;
+                        seenReviewUrls.add(reviewUrl);
+
+                        const reviewResp = await fetch(reviewUrl);
+                        if (!reviewResp.ok) continue;
+                        const reviewHtml = await reviewResp.text();
+                        const reviewDoc = new DOMParser().parseFromString(reviewHtml, 'text/html');
+
+                        const res = harvestFromReviewDOM(reviewDoc, subCode, qz.title, courseInfo.fullTitle || subCode);
+                        if (res.success && res.questions.length > 0) {
+                            allQuestions.push(...res.questions);
+                            totalHarvested += res.harvestedCount;
+                        }
+                    }
+                } catch (err) {
+                    console.warn(`Error harvesting ${qz.title}:`, err);
+                }
             }
 
-            return { success: true, count: totalHarvested, quizzes: completedQuizzes.length };
-        } else {
-            showToast("No reviews could be opened. Reviews might be restricted by instructor.");
-            setLog("Completed quiz reviews were not accessible.", "var(--accent-amber)");
-            return { success: false, count: 0 };
+            if (allQuestions.length > 0) {
+                mergeAnswersIntoCache(subCode, allQuestions, 'Grades-Harvester');
+                setLog(`Harvest Complete! Loaded <b>${totalHarvested}</b> verified answers from ${completedQuizzes.length} quizzes into <b>${subCode}</b> DB.`, "var(--accent-green)");
+                showToast(`Harvested ${totalHarvested} verified answers! Saved to database.`, 4000);
+
+                syncAutoQuizUI();
+                const fresh = getCachedAnswers(subCode);
+                const lbl = document.getElementById('fetch-btn-label');
+                if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+
+                return { success: true, count: totalHarvested, quizzes: completedQuizzes.length };
+            } else {
+                showToast("No reviews could be opened. Reviews might be restricted by instructor.");
+                setLog("Completed quiz reviews were not accessible.", "var(--accent-amber)");
+                return { success: false, count: 0 };
+            }
+        } finally {
+            isHarvestingInProgress = false;
         }
     }
 
@@ -5098,7 +5107,7 @@
             statusHtml = `
                 <div style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3); border-radius: 6px; padding: 6px 10px; font-size: 10.5px; display: flex; align-items: center; justify-content: space-between;">
                     <span>Current Subject: <b style="color: #34d399;">${currentSubCode}</b></span>
-                    <span style="font-size: 9.5px; color: #a7f3d0; font-weight: 600;">⚡ Ready to auto-sync</span>
+                    <span style="font-size: 9.5px; color: #a7f3d0; font-weight: 600;">Ready to auto-sync</span>
                 </div>
             `;
         } else if (dashCourses.length > 0) {
@@ -5116,7 +5125,7 @@
         } else {
             statusHtml = `
                 <div style="background: rgba(245, 158, 11, 0.1); border: 1px solid rgba(245, 158, 11, 0.25); border-radius: 6px; padding: 6px 10px; font-size: 10.5px; color: #fcd34d;">
-                    💡 <b>Next Step:</b> Open any course from your dashboard — the toolkit will auto-sync verified answers immediately!
+                    <b>Next Step:</b> Open any course from your dashboard — the toolkit will auto-sync verified answers immediately!
                 </div>
             `;
         }
@@ -5209,7 +5218,7 @@
                             This toolkit is completely student-driven! As you complete quizzes using your account, verified answers are <b>automatically shared to the global student database</b> so question banks stay up to date for you and your classmates.
                         </div>
                         <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 6px; padding: 7px 9px; font-size: 10px; color: #cbd5e1; line-height: 1.45;">
-                            <div style="font-weight: 700; color: #e2e8f0; margin-bottom: 2px;">🔒 Safe & 100% Anonymous Guarantee:</div>
+                            <div style="font-weight: 700; color: #e2e8f0; margin-bottom: 2px;">Safe & 100% Anonymous Guarantee:</div>
                             • <b>Zero Personal Data:</b> Your student ID, name, email, account password, and Moodle tokens are <b>NEVER</b> transmitted or saved.<br/>
                             • <b>Only Question & Answer Texts:</b> Only the question prompt and verified teacher-marked answers are contributed.<br/>
                             • <b>Autonomous:</b> Runs seamlessly in the background as you study — no files or GitHub setup needed.
@@ -5403,7 +5412,7 @@
             // Trigger auto-sync immediately if enabled
             if (autoCloudSync) {
                 if (dashCourses.length > 0) {
-                    showToast(`⚡ Auto-syncing answers for ${dashCourses.length} courses...`, 3000);
+                    showToast(`Auto-syncing answers for ${dashCourses.length} courses...`, 3000);
                     setLog(`Auto-syncing ${dashCourses.length} courses from community database...`, "var(--accent-blue)");
                     dashCourses.forEach(c => {
                         sessionStorage.setItem(`amaes_cloud_synced_${c.code}`, '1');
@@ -5433,7 +5442,7 @@
                         });
                     }
                 } else {
-                    showToast("💡 Open any course to automatically sync verified answers!", 4000);
+                    showToast("Open any course to automatically sync verified answers!", 4000);
                 }
             }
         };
@@ -5549,31 +5558,6 @@
                         ${cachedQuestions && cachedQuestions.length > 0 ? 'READY' : 'NO DB'}
                     </span>
                 </div>
-
-                ${(window.location.pathname.includes('/grade/report/user') || window.location.pathname.includes('/course/view.php') || Boolean(courseInfo.subjectCode)) ? `
-                <!-- Quick-Action Grade Report Harvester Bar -->
-                <div id="amaes-grades-panel-bar" style="
-                    background: rgba(16, 185, 129, 0.12);
-                    border: 1px solid rgba(16, 185, 129, 0.35);
-                    border-radius: 6px;
-                    padding: 7px 8px;
-                    margin-bottom: 6px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 5px;
-                ">
-                    <div style="display: flex; align-items: center; justify-content: space-between; font-size: 11px; font-weight: 700; color: var(--accent-green);">
-                        <span style="display: flex; align-items: center; gap: 4px;">${ICONS.database} ${window.location.pathname.includes('/grade/report/user') ? 'Grade Report Active' : 'Past Quiz Harvester'}</span>
-                        <span style="font-size: 9px; background: rgba(16, 185, 129, 0.2); padding: 1px 5px; border-radius: 4px;">AUTO-READY</span>
-                    </div>
-                    <div style="font-size: 9.5px; color: var(--text-secondary); line-height: 1.3;">
-                        Harvest all confirmed answers from your completed quizzes in ${subCode || 'this course'} and sync online.
-                    </div>
-                    <button id="btn-bar-harvest-grades" class="amaes-btn amaes-btn-green" style="justify-content: center; padding: 5px; font-size: 10.5px; font-weight: 700; cursor: pointer;">
-                        ${ICONS.download} <span>Scan & Harvest Completed Quizzes</span>
-                    </button>
-                </div>
-                ` : ''}
 
                 <!-- Categorized Persona Navigation Tabs -->
                 <div id="amaes-nav-tabs">
@@ -5700,13 +5684,16 @@
                         </div>
                     </div>
 
-                    <!-- Primary 1-Click Actions: Pull & Share -->
+                    <!-- Primary 1-Click Actions: Pull, Harvest & Share -->
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 6px;" title="Pull verified answers directly from free GitHub community database">
+                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 6px; font-size: 10.5px; font-weight: 700;" title="Pull verified answers directly from free GitHub community database">
                             ${ICONS.cloudDownload} <span>Cloud Sync</span>
                         </button>
-                        <button id="btn-contribute-db" class="amaes-btn" style="flex: 1.3; justify-content: center; padding: 6px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" title="Share collected verified answers to the community GitHub hub (zero personal tokens or account required)">
-                            ${ICONS.upload} <span>Share to Hub</span>
+                        <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="flex: 1.15; justify-content: center; padding: 6px; font-size: 10.5px; font-weight: 700;" title="Scan course Grade Report to harvest and sync all completed past quizzes">
+                            ${ICONS.download} <span>Harvest Quizzes</span>
+                        </button>
+                        <button id="btn-contribute-db" class="amaes-btn amaes-btn-outline" style="padding: 6px 8px; justify-content: center; font-size: 10px; font-weight: 700;" title="Share collected verified answers to the community GitHub hub">
+                            ${ICONS.upload} <span>Share</span>
                         </button>
                     </div>
 
@@ -5730,19 +5717,14 @@
                         </div>
                     </details>
 
-                    <!-- Advanced / Developer Tools (AMAUOED Scraper + Past Quiz Harvester) -->
+                    <!-- Advanced AMAUOED Study Guide Scraper -->
                     <details style="border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 7px; background: rgba(0,0,0,0.15);">
                         <summary style="font-size: 10px; font-weight: 700; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
-                            <span>Past Quiz Harvester & Scraper</span>
+                            <span>AMAUOED Study Guide Scraper</span>
                             <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
                         </summary>
                         <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
-                            <!-- Harvest Past Quizzes from Grades -->
-                            <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="justify-content: center; padding: 6px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Scan course Grade Report to harvest and sync all completed past quizzes">
-                                ${ICONS.download} <span>Harvest Past Quizzes (via Grades)</span>
-                            </button>
-
-                            <!-- Legacy AMAUOED Scraper -->
+                            <!-- AMAUOED Scraper -->
                             <div style="display: flex; gap: 4px; align-items: center;">
                                 <input id="amauoed-url-input" type="text" value="${defaultAmauoedUrl}" placeholder="Paste or auto-find amauoed.com link..." title="AMAUOED course answer key URL" style="
                                     flex: 1;
@@ -5798,25 +5780,7 @@
 
                 <!-- TAB PANE 3: Course Automation Tools -->
                 <div id="tab-pane-course" class="amaes-tab-pane" style="display: none;">
-                    <!-- MODULE 0: Grades Quiz Harvester -->
-                    <div id="mod-harvester-card" class="amaes-card">
-                        <div id="mod-harvester-header" class="amaes-card-header">
-                            <div style="display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.database}
-                                <span class="header-label" style="color: var(--accent-green);">Grades Quiz Harvester</span>
-                            </div>
-                            <span id="mod-harvester-arrow" class="arrow-container">${ICONS.chevronRight}</span>
-                        </div>
-                        <div id="mod-harvester-body" style="display: none; padding: 8px; flex-direction: column; gap: 6px;">
-                            <div style="font-size: 9.5px; color: var(--text-muted); line-height: 1.35;">
-                                Scans your course Grade Report in the background to automatically harvest 100% verified answers from your past completed quizzes.
-                            </div>
-                            <button id="btn-harvest-course-tools" class="amaes-btn amaes-btn-green" style="justify-content: center; padding: 7px; font-weight: 700; font-size: 10.5px;">
-                                ${ICONS.download} <span>Harvest Past Quizzes from Grades</span>
-                            </button>
-                        </div>
-                    </div>
-                    <!-- MODULE 4: Auto-Marker & Undo -->
+                    <!-- MODULE 1: Auto-Marker & Undo -->
                 <div id="mod-marker-card" class="amaes-card">
                     <div id="mod-marker-header" class="amaes-card-header">
                         <div style="display: flex; align-items: center; gap: 6px;">
@@ -7216,60 +7180,18 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
                 }).then(res => {
                     if (res && res.success && res.count > 0) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
+                    } else if (res && res.inProgress) {
+                        btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>In Progress</span>`;
                     } else {
                         btnHarvestGradesDb.innerHTML = `<span>Finished</span>`;
                     }
                     setTimeout(() => {
                         btnHarvestGradesDb.disabled = false;
-                        btnHarvestGradesDb.innerHTML = `${ICONS.download} <span>Harvest Past Quizzes (via Grades)</span>`;
+                        btnHarvestGradesDb.innerHTML = `${ICONS.download} <span>Harvest Quizzes</span>`;
                     }, 4000);
                 });
             };
         }
-
-        const btnHarvestCourseTools = document.getElementById('btn-harvest-course-tools');
-        if (btnHarvestCourseTools) {
-            btnHarvestCourseTools.onclick = () => {
-                btnHarvestCourseTools.disabled = true;
-                btnHarvestCourseTools.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
-                executeGradesHarvester((curr, total, name) => {
-                    btnHarvestCourseTools.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
-                }).then(res => {
-                    if (res && res.success && res.count > 0) {
-                        btnHarvestCourseTools.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
-                    } else {
-                        btnHarvestCourseTools.innerHTML = `<span>Finished</span>`;
-                    }
-                    setTimeout(() => {
-                        btnHarvestCourseTools.disabled = false;
-                        btnHarvestCourseTools.innerHTML = `${ICONS.download} <span>Harvest Past Quizzes from Grades</span>`;
-                    }, 4000);
-                });
-            };
-        }
-
-        const btnBarHarvestGrades = document.getElementById('btn-bar-harvest-grades');
-        if (btnBarHarvestGrades) {
-            btnBarHarvestGrades.onclick = () => {
-                btnBarHarvestGrades.disabled = true;
-                btnBarHarvestGrades.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
-                executeGradesHarvester((curr, total, name) => {
-                    btnBarHarvestGrades.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
-                }).then(res => {
-                    if (res && res.success && res.count > 0) {
-                        btnBarHarvestGrades.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
-                    } else {
-                        btnBarHarvestGrades.innerHTML = `<span>Finished</span>`;
-                    }
-                    setTimeout(() => {
-                        btnBarHarvestGrades.disabled = false;
-                        btnBarHarvestGrades.innerHTML = `${ICONS.download} <span>Scan & Harvest Completed Quizzes</span>`;
-                    }, 4000);
-                });
-            };
-        }
-
-        setupPersistentAccordion('mod-harvester-header', 'mod-harvester-body', 'mod-harvester-arrow', 'amaes_pref_mod_harvester', true);
 
         if (btnConfigCloud) {
             btnConfigCloud.onclick = () => {

@@ -398,14 +398,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.2.4');
+    mockStorage.set('amaes_latest_version_seen', '1.2.5');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.2.3";
+    const currentVersion = "v1.2.4";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.4 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.5 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
@@ -676,6 +676,57 @@ test("AMAUOED Static Scraping Gate: avoids redundant scraping if local cache or 
     assert.strictEqual(shouldScrapeAmauoed(0, true, true), false);
     // No link known -> cannot scrape
     assert.strictEqual(shouldScrapeAmauoed(0, false, false), false);
+});
+
+// --------------------------------------------------
+// 23. Harvester Concurrency Mutex & Race Guard
+// --------------------------------------------------
+test("Harvester Concurrency Mutex: blocks duplicate simultaneous background & manual harvesting", async () => {
+    let isHarvestingInProgress = false;
+
+    async function simulateHarvester() {
+        if (isHarvestingInProgress) {
+            return { success: false, inProgress: true };
+        }
+        isHarvestingInProgress = true;
+        try {
+            await new Promise(r => setTimeout(r, 10));
+            return { success: true, count: 5 };
+        } finally {
+            isHarvestingInProgress = false;
+        }
+    }
+
+    // Launch first harvest
+    const run1 = simulateHarvester();
+    // Immediate concurrent second launch should be blocked by mutex
+    const run2 = await simulateHarvester();
+
+    assert.strictEqual(run2.inProgress, true, "Concurrent harvest attempt must be blocked by mutex!");
+
+    const res1 = await run1;
+    assert.strictEqual(res1.success, true, "First harvest run must succeed!");
+    assert.strictEqual(isHarvestingInProgress, false, "Mutex must reset to false after completion!");
+});
+
+// --------------------------------------------------
+// 24. Dynamic Course Subject Fallback in Harvester
+// --------------------------------------------------
+test("Harvester Dynamic Fallback: avoids hardcoded subject code when table detection is empty", () => {
+    function resolveSubjectCode(detectedCode, courseId) {
+        let subCode = detectedCode;
+        if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
+            subCode = courseId ? (`COURSE_${courseId}`) : 'GENERAL';
+        }
+        return subCode;
+    }
+
+    assert.strictEqual(resolveSubjectCode('MATH6100', '123'), 'MATH6100');
+    assert.strictEqual(resolveSubjectCode('', '456'), 'COURSE_456');
+    assert.strictEqual(resolveSubjectCode(null, '789'), 'COURSE_789');
+    assert.strictEqual(resolveSubjectCode('GENERAL', '999'), 'COURSE_999');
+    assert.strictEqual(resolveSubjectCode('', null), 'GENERAL');
+    assert.notStrictEqual(resolveSubjectCode('', '123'), 'CS6301', "Must never hardcode CS6301 on unknown course!");
 });
 
 console.log("\n==================================================");
