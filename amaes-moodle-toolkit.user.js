@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.5
+// @version      1.0.6
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.5";
+    const SCRIPT_VERSION = "v1.0.6";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -221,7 +221,7 @@
                     <a href="${SCRIPT_RAW_URL}" target="_blank" rel="noopener noreferrer" class="amaes-btn amaes-btn-primary" style="padding: 2px 8px; font-size: 10px; font-weight: 700; text-decoration: none; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
                         Update Now
                     </a>
-                    <button id="btn-dismiss-update" style="background: none; border: none; color: #94a3b8; font-size: 13px; cursor: pointer; padding: 2px; line-height: 1;" title="Dismiss">✕</button>
+                    <button id="btn-dismiss-update" style="background: none; border: none; color: #94a3b8; font-size: 15px; cursor: pointer; padding: 2px; line-height: 1;" title="Dismiss">&times;</button>
                 </div>
             </div>
         `;
@@ -437,6 +437,10 @@
         checkBadge: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`,
         clock: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
         xCircle: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
+        clipboard: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1" ry="1"/></svg>`,
+        keyboard: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg>`,
+        skipForward: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>`,
+        close: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
     };
 
 
@@ -1246,8 +1250,8 @@
             if (navState && navState.nextUnanswered && navState.nextUnanswered.btn) {
                 const target = navState.nextUnanswered;
                 logDebug(`Smart Jump: Bypassing answered questions, jumping directly to Question #${target.qNum}`);
-                setLog(`⏩ <b>Smart Skip:</b> Jumping to unanswered <b>Question #${target.qNum}</b> (${navState.totalUnanswered} remaining)...`, "var(--accent-blue)");
-                showToast(`⏩ Smart Jump: Question #${target.qNum}`, 1800);
+                setLog(`[Skip] <b>Smart Skip:</b> Jumping to unanswered <b>Question #${target.qNum}</b> (${navState.totalUnanswered} remaining)...`, "var(--accent-blue)");
+                showToast(`Smart Jump: Question #${target.qNum}`, 1800);
 
                 target.btn.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 try {
@@ -1434,7 +1438,7 @@
                             return;
                         }
 
-                        setLog(`⏩ <b>Auto-Next:</b> Advancing to next question in <b>1.0s</b>...`, "var(--accent-blue)");
+                        setLog(`[Auto-Next] <b>Auto-Next:</b> Advancing to next question in <b>1.0s</b>...`, "var(--accent-blue)");
                         autoNextTimer = setTimeout(() => {
                             if (!autoQuizMode) return;
                             clickQuizNextButton(nextBtn);
@@ -1492,32 +1496,18 @@
                         box-sizing: border-box;
                     `;
 
-                    const skipBtnHtml = (navState && navState.nextUnanswered) ? `
-                        <button id="btn-blockage-skip" class="amaes-inline-btn" style="background: #3b82f6; color: #ffffff;" title="Skip this question and jump directly to next unanswered question">
-                            ⏩ Skip to #${navState.nextUnanswered.qNum}
-                        </button>` : '';
-
                     hud.innerHTML = `
-                        <div style="display: flex; align-items: center; gap: 10px; flex: 1 1 220px; min-width: 200px;">
+                        <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 200px;">
                             <span style="background: #f59e0b; color: #ffffff; padding: 3px 8px; border-radius: 5px; font-weight: 800; font-size: 10px; letter-spacing: 0.5px; flex-shrink: 0;">WAITING</span>
                             <div>
-                                <div style="font-weight: 700; color: #92400e;">Question #${qData ? qData.qNum : ''} not in DB & auto-copied to clipboard!</div>
-                                <div style="color: #b45309; font-size: 11px;">Paste in AI (Ctrl+V), pick your answer below, and click <b>Next page</b> when ready.</div>
+                                <div style="font-weight: 700; color: #92400e;">Question #${qData ? qData.qNum : ''} not in DB & auto-copied to clipboard.</div>
+                                <div style="color: #b45309; font-size: 11px;">Paste in AI, select answer (or press <b>V</b> to auto-select), then press <b>N</b> or click <b>Next page</b> below.</div>
                             </div>
                         </div>
-                        ${skipBtnHtml}
                     `;
 
                     const formulation = firstBlockedQue.querySelector('.formulation, .content') || firstBlockedQue;
                     formulation.insertBefore(hud, formulation.firstChild);
-
-                    const blockageSkipBtn = document.getElementById('btn-blockage-skip');
-                    if (blockageSkipBtn && navState && navState.nextUnanswered) {
-                        blockageSkipBtn.onclick = (e) => {
-                            e.preventDefault();
-                            navState.nextUnanswered.btn.click();
-                        };
-                    }
                 }
 
                 // Listen for user selecting a choice: show visual confirmation, but LEAVE NEXT CLICK TO USER
@@ -1530,34 +1520,18 @@
                         hud.style.background = '#ecfdf5';
                         hud.style.color = '#065f46';
 
-                        const currentNav = getQuizNavQuestionStates();
-                        const nextUnans = currentNav ? currentNav.nextUnanswered : null;
-                        const jumpBtnHtml = nextUnans ? `
-                            <button id="btn-blockage-next-unans" class="amaes-inline-btn" style="background: #10b981; color: #ffffff;">
-                                ⏩ Jump to #${nextUnans.qNum}
-                            </button>` : '';
-
                         hud.innerHTML = `
-                            <div style="display: flex; align-items: center; gap: 10px; flex: 1 1 220px; min-width: 200px;">
+                            <div style="display: flex; align-items: center; gap: 10px; flex: 1; min-width: 200px;">
                                 <span style="background: #10b981; color: #ffffff; padding: 3px 8px; border-radius: 5px; font-weight: 800; font-size: 10px;">READY</span>
                                 <div>
                                     <div style="font-weight: 700; color: #065f46;">Answer selected!</div>
-                                    <div style="color: #047857; font-size: 11px;">Click <b>Next page</b> ${nextUnans ? `or jump directly to Question #${nextUnans.qNum}` : 'to finish'}</div>
+                                    <div style="color: #047857; font-size: 11px;">Press <b>N</b> or click <b>Next page</b> below to proceed.</div>
                                 </div>
                             </div>
-                            ${jumpBtnHtml}
                         `;
-
-                        const jumpBtn = document.getElementById('btn-blockage-next-unans');
-                        if (jumpBtn && nextUnans) {
-                            jumpBtn.onclick = (e) => {
-                                e.preventDefault();
-                                nextUnans.btn.click();
-                            };
-                        }
                     }
-                    showToast("Answer picked! Click Next page when ready.");
-                    setLog("Answer selected! Click <b>Next page</b> when ready to proceed.", "var(--accent-green)");
+                    showToast("Answer picked! Press N or click Next page.");
+                    setLog("Answer selected! Press <b>N</b> or click <b>Next page</b> below to proceed.", "var(--accent-green)");
                 };
 
                 inputElements.forEach(inp => {
@@ -1653,8 +1627,8 @@
         localStorage.setItem('amaes_auto_quiz_mode', autoQuizMode ? 'true' : 'false');
 
         if (autoQuizMode) {
-            showToast(`▶ Auto-Quiz Started (${quizPersonality.toUpperCase()})`);
-            setLog(`▶ Auto-Quiz <b>started</b> in <b>${quizPersonality.toUpperCase()}</b> mode!`, "var(--accent-green)");
+            showToast(`Auto-Quiz Started (${quizPersonality.toUpperCase()})`);
+            setLog(`Auto-Quiz <b>started</b> in <b>${quizPersonality.toUpperCase()}</b> mode!`, "var(--accent-green)");
             if (checkIsQuizAttemptPage()) runAutoQuizSolver(true);
             if (checkIsQuizSummaryPage()) handleQuizSummaryAutoSubmit();
         } else {
@@ -1663,8 +1637,8 @@
             clearTimeout(pageLoadSolverTimer);
             pageLoadSolverTimer = null;
             isSolverRunning = false;
-            showToast("⏸ Auto-Quiz Paused");
-            setLog("⏸ Auto-Quiz <b>paused</b>. Auto-answers & auto-navigation completely stopped.", "var(--accent-amber)");
+            showToast("Auto-Quiz Paused");
+            setLog("Auto-Quiz <b>paused</b>. Auto-answers & auto-navigation completely stopped.", "var(--accent-amber)");
         }
 
         syncAutoQuizUI();
@@ -1706,16 +1680,6 @@
 
         const isAgg = quizPersonality === 'aggressive';
 
-        // Unanswered Quick Jump button HTML
-        let jumpHtml = '';
-        if (navState && navState.nextUnanswered) {
-            jumpHtml = `
-                <button id="btn-hud-jump-unanswered" class="amaes-inline-btn" style="padding: 2px 8px; font-size: 10px; background: rgba(59,130,246,0.25); color: #60a5fa; border: 1px solid #3b82f6; border-radius: 12px; cursor: pointer; font-weight: 700;" title="Jump directly to Question #${navState.nextUnanswered.qNum}">
-                    ⏩ #${navState.nextUnanswered.qNum} (${navState.totalUnanswered} left)
-                </button>
-            `;
-        }
-
         hud.innerHTML = `
             <!-- Auto-Quiz Status -->
             <div style="display: flex; align-items: center; gap: 6px;">
@@ -1744,8 +1708,6 @@
                 <span>(${verifiedCount}${eliminatedCount > 0 ? ` • ${eliminatedCount} Elim` : ''})</span>
             </div>
 
-            ${jumpHtml}
-
             <!-- Start / Pause Button -->
             <button id="btn-hud-toggle-quiz" class="amaes-inline-btn" style="padding: 3px 10px; font-size: 10px; background: ${autoQuizMode ? 'rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444' : 'rgba(16,185,129,0.25); color:#10b981; border:1px solid #10b981'}; border-radius: 12px; cursor: pointer; font-weight: 600;">
                 ${autoQuizMode ? 'Pause' : 'Start'}
@@ -1758,12 +1720,94 @@
         if (_el__btn_hud_toggle_quiz_) _el__btn_hud_toggle_quiz_.onclick = () => {;
             toggleAutoQuizMode();
         };
+    }
 
-        const hudJumpBtn = document.getElementById('btn-hud-jump-unanswered');
-        if (hudJumpBtn && navState && navState.nextUnanswered) {
-            hudJumpBtn.onclick = () => {
-                navState.nextUnanswered.btn.click();
-            };
+    // Auto-select choice based on AI answer from clipboard (Shortcut: V or Button)
+    async function autoSelectFromAiClipboard(explicitQue = null) {
+        if (!navigator.clipboard || !navigator.clipboard.readText) {
+            showToast("Clipboard reading not supported in this browser");
+            return;
+        }
+        try {
+            const text = await navigator.clipboard.readText();
+            if (!text || !text.trim()) {
+                showToast("Clipboard is empty. Copy the AI answer first.");
+                return;
+            }
+            const questions = Array.from(document.querySelectorAll('.que'));
+            if (questions.length === 0) {
+                showToast("No quiz question found on page");
+                return;
+            }
+
+            const targetQue = explicitQue || questions.find(q => {
+                const rect = q.getBoundingClientRect();
+                return rect.top >= 0 && rect.top <= (window.innerHeight || 800);
+            }) || questions.find(q => !q.classList.contains('answered') && !q.classList.contains('complete')) || questions[0];
+
+            if (!targetQue) return;
+
+            const cleanText = text.trim();
+            const inputElements = Array.from(targetQue.querySelectorAll('.answer input[type="radio"], .answer input[type="checkbox"]'));
+            if (inputElements.length === 0) {
+                showToast("No multiple choice inputs found for this question");
+                return;
+            }
+
+            // 1. Direct letter matching: Look for option letter (A, B, C, D)
+            const matchLetter = cleanText.match(/(?:^|\b)(?:answer|option|choice|the correct answer is)?\s*[:\-–*]*\s*([a-dA-D])(?:\.|\)|:|\s|$)/i);
+            if (matchLetter && matchLetter[1]) {
+                const letter = matchLetter[1].toUpperCase();
+                const idx = letter.charCodeAt(0) - 65;
+                if (inputElements[idx]) {
+                    inputElements[idx].click();
+                    showToast(`Auto-selected Option ${letter} from AI clipboard`);
+                    setLog(`AI Paste: Selected Option <b>${letter}</b> from clipboard`, "var(--accent-green)");
+                    return;
+                }
+            }
+
+            // 2. Fuzzy text matching: match clipboard text with choice labels
+            const normClip = normalizeText(cleanText);
+            let bestInput = null;
+            let bestScore = 0;
+            let bestLabel = '';
+
+            inputElements.forEach((inp, idx) => {
+                const container = inp.closest('div, li, label') || inp.parentElement;
+                const choiceText = container ? container.innerText.trim() : '';
+                const normChoice = normalizeText(choiceText);
+                if (!normChoice) return;
+
+                if (normClip.includes(normChoice) || normChoice.includes(normClip)) {
+                    if (normChoice.length > bestScore) {
+                        bestScore = normChoice.length;
+                        bestInput = inp;
+                        bestLabel = String.fromCharCode(65 + idx);
+                    }
+                } else {
+                    const cWords = normChoice.split(/\s+/).filter(w => w.length > 2);
+                    const matchedWords = cWords.filter(w => normClip.includes(w));
+                    const score = matchedWords.length / Math.max(1, cWords.length);
+                    if (score > 0.6 && score > bestScore) {
+                        bestScore = score;
+                        bestInput = inp;
+                        bestLabel = String.fromCharCode(65 + idx);
+                    }
+                }
+            });
+
+            if (bestInput) {
+                bestInput.click();
+                showToast(`Auto-selected ${bestLabel} from AI text match`);
+                setLog(`AI Paste: Auto-matched choice <b>${bestLabel}</b> from clipboard`, "var(--accent-green)");
+            } else {
+                showToast("Could not match AI response to any option. Select manually.");
+                setLog("AI Paste: Clipboard did not clearly match any choice.", "var(--accent-amber)");
+            }
+        } catch (err) {
+            logDebug("Clipboard read error: " + err);
+            showToast("Clipboard access denied or unavailable");
         }
     }
 
@@ -1788,7 +1832,7 @@
                 const nextBtn = findQuizNextButton();
                 if (nextBtn) {
                     e.preventDefault();
-                    showToast("⌨ Shortcut: Next Page");
+                    showToast("Shortcut: Next Page");
                     setLog("Keyboard shortcut triggered: <b>Next Page</b>", "var(--accent-blue)");
                     nextBtn.click();
                 }
@@ -1807,22 +1851,29 @@
                         e.preventDefault();
                         const text = formatQuestionForAI(queList[0], aiPromptHint);
                         copyToClipboard(text);
-                        showToast("⌨ Shortcut: Question copied for AI!");
+                        showToast("Shortcut: Question copied for AI");
                     }
                 }
                 return;
             }
 
-            // 3. Pause / Start Auto-Quiz: 'P'
+            // 3. Paste AI Answer & Auto-Select: 'V'
+            if (key === 'V') {
+                e.preventDefault();
+                autoSelectFromAiClipboard();
+                return;
+            }
+
+            // 4. Pause / Start Auto-Quiz: 'P'
             if (key === 'P') {
                 e.preventDefault();
                 toggleAutoQuizMode();
                 return;
             }
 
-            // 4. Highlight Database Answers: 'H'
+            // 5. Highlight Database Answers: 'H'
             if (key === 'H') {
-                const hlBtn = document.getElementById('btn-hl-answers') || document.getElementById('btn-db-quick-highlight');
+                const hlBtn = document.getElementById('btn-quick-hl') || document.getElementById('btn-hl-answers') || document.getElementById('btn-db-quick-highlight');
                 if (hlBtn) {
                     e.preventDefault();
                     hlBtn.click();
@@ -1830,7 +1881,7 @@
                 return;
             }
 
-            // 5. Select Choice Option: 1-4 or A-D
+            // 6. Select Choice Option: 1-4 or A-D
             let optIndex = -1;
             if (key >= '1' && key <= '9') {
                 optIndex = parseInt(key, 10) - 1;
@@ -1854,7 +1905,7 @@
                         e.preventDefault();
                         choices[optIndex].click();
                         const choiceLabel = key >= '1' && key <= '9' ? String.fromCharCode(65 + optIndex) : key;
-                        showToast(`⌨ Shortcut: Selected Choice ${choiceLabel}`);
+                        showToast(`Shortcut: Selected Choice ${choiceLabel}`);
                         setLog(`Keyboard shortcut: Selected choice <b>${choiceLabel}</b>`, "var(--accent-blue)");
                     }
                 }
@@ -1969,7 +2020,7 @@
                         const sourceColor = isDeduced ? '#10b981' : (isAmauoed ? '#0284c7' : '#10b981');
                         const sourceBg = isDeduced ? 'rgba(16, 185, 129, 0.15)' : (isAmauoed ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)');
                         const sourceBadgeClass = isAmauoed ? 'amaes-badge-amauoed' : 'amaes-badge-db';
-                        const sourceIcon = isDeduced ? '💡' : (isAmauoed ? ICONS.external : ICONS.database);
+                        const sourceIcon = isDeduced ? ICONS.lightbulb : (isAmauoed ? ICONS.external : ICONS.database);
                         const sourceLabel = isDeduced ? 'Deduced (100%)' : (isAmauoed ? 'AMAUOED' : 'Verified DB');
 
                         // Apply full row highlight on container
@@ -2119,7 +2170,7 @@
                     if (!badge) {
                         badge = document.createElement('span');
                         badge.className = 'amaes-verified-badge amaes-badge-db';
-                        badge.innerHTML = `💡 <span>Deduced (100% Elimination)</span>`;
+                        badge.innerHTML = `${ICONS.lightbulb} <span>Deduced (100% Elimination)</span>`;
                         badge.style.cssText = `
                             background: linear-gradient(135deg, #10b981, #059669);
                             color: #ffffff;
@@ -3681,7 +3732,7 @@
             }
             if (q.wrongAnswers && q.wrongAnswers.length > 0) {
                 const wTexts = q.wrongAnswers.map(w => typeof w === 'string' ? w : w.text).filter(Boolean);
-                out += `   ❌ Eliminated Wrong: ${wTexts.join(' | ')}\n`;
+                out += `   [Wrong]: ${wTexts.join(' | ')}\n`;
             }
             out += `\n`;
         });
@@ -4125,7 +4176,7 @@
                             <div style="font-size: 11px; color: var(--accent-green, #10b981); font-weight: 600;">v${SCRIPT_VERSION.replace('v','')} • Quick Start Guide & Setup</div>
                         </div>
                     </div>
-                    <button id="btn-close-welcome" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding: 4px;">✕</button>
+                    <button id="btn-close-welcome" style="background:none; border:none; color:#94a3b8; font-size:18px; cursor:pointer; padding: 4px;">&times;</button>
                 </div>
 
                 <!-- Body Scrollable -->
@@ -4156,7 +4207,7 @@
 
                             <div style="background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.35); border-radius: 6px; padding: 8px 10px;">
                                 <div style="color: #fbbf24; font-weight: 700; margin-bottom: 2px; display: flex; align-items: center; gap: 5px;">
-                                    ⚠️ Crucial Step for Chrome / Brave / Edge Users:
+                                    [Notice] Crucial Step for Chrome / Brave / Edge Users:
                                 </div>
                                 <div style="font-size: 11px; color: #fde68a;">
                                     Open your browser's extensions page (<code>chrome://extensions</code> or <code>edge://extensions</code>) and toggle <b>"Developer Mode"</b> to <b>ON</b> (top-right switch). Modern Chromium browsers block userscripts from executing on pages unless Developer Mode is active!
@@ -4209,6 +4260,10 @@
                                 <span>Auto-Copy for AI</span>
                             </label>
                             <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
+                                <input id="welcome-chk-hotkeys" type="checkbox" ${enableKeyboardShortcuts ? 'checked' : ''} />
+                                <span>Keyboard Shortcuts (N, C, V, P, 1-4)</span>
+                            </label>
+                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
                                 <input id="welcome-chk-skip" type="checkbox" ${smartSkipQuiz ? 'checked' : ''} />
                                 <span>Smart Skip Answered</span>
                             </label>
@@ -4220,10 +4275,45 @@
                                 <input id="welcome-chk-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} />
                                 <span>Auto-Submit Quiz (Aggressive)</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 6px; cursor: pointer;">
-                                <input id="welcome-chk-dl" type="checkbox" ${localStorage.getItem('amaes_auto_dl_json') === 'true' ? 'checked' : ''} />
-                                <span>Auto-Download JSON on Review</span>
-                            </label>
+                        </div>
+                    </div>
+
+                    <!-- Keyboard Shortcuts Cheatsheet -->
+                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 8px; padding: 12px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                            <div style="font-weight: 700; color: #c4b5fd; font-size: 13px; display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.keyboard} <span>Keyboard Shortcuts Cheatsheet</span>
+                            </div>
+                            <span style="font-size: 10px; color: #a78bfa; font-weight: 600;">Active during quiz attempts</span>
+                        </div>
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 11px;">
+                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">N / Space</kbd>
+                                <span>Next Page / Advance</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">1 - 4 / A - D</kbd>
+                                <span>Select Choice Option</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">C</kbd>
+                                <span>Copy Question for AI</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">V</kbd>
+                                <span>Paste AI & Auto-Select</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">P</kbd>
+                                <span>Pause / Start Auto-Quiz</span>
+                            </div>
+                            <div style="display: flex; align-items: center; gap: 8px; background: rgba(0,0,0,0.2); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">H</kbd>
+                                <span>Highlight DB Answers</span>
+                            </div>
+                        </div>
+                        <div style="font-size: 10px; color: var(--text-muted); margin-top: 6px;">
+                            * Hotkeys are ignored while typing in text boxes. You can toggle shortcuts on/off anytime from the Quiz Solver tab.
                         </div>
                     </div>
 
@@ -4374,6 +4464,11 @@
             const p = document.getElementById('chk-auto-submit');
             if (p) p.checked = v;
         });
+        bindWelcomeToggle('welcome-chk-hotkeys', 'amaes_enable_hotkeys', (v) => {
+            enableKeyboardShortcuts = v;
+            const p = document.getElementById('chk-keyboard-shortcuts');
+            if (p) p.checked = v;
+        });
         bindWelcomeToggle('welcome-chk-dl', 'amaes_auto_dl_json', (v) => {
             const p = document.getElementById('chk-auto-dl-json');
             if (p) p.checked = v;
@@ -4413,7 +4508,7 @@
         const btnCopyInstallGuide = document.getElementById('btn-copy-install-guide');
         if (btnCopyInstallGuide) {
             btnCopyInstallGuide.onclick = () => {
-                const guideText = `🎓 AMAES & ACLC Moodle Toolkit - Setup & Installation Guide\n\n` +
+                const guideText = `AMAES & ACLC Moodle Toolkit - Setup & Installation Guide\n\n` +
                     `Step 1: Install Violentmonkey (Recommended Userscript Manager):\n` +
                     `• Chrome / Brave: https://chromewebstore.google.com/detail/violentmonkey/jinjaccalgkegednnccohejagnlnfdag\n` +
                     `• Firefox: https://addons.mozilla.org/en-US/firefox/addon/violentmonkey/\n` +
@@ -4592,16 +4687,16 @@
                         </div>
                     </div>
 
-                    <!-- Action Buttons: Quick Highlight & Copy for AI -->
-                    <div style="display: flex; gap: 5px; margin-top: 2px;">
-                        <button id="btn-quick-hl" class="amaes-btn amaes-btn-green" style="flex: 1.2; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Highlight confirmed answers from database on current quiz questions (Shortcut: H)">
-                            ${ICONS.lightbulb} <span>Highlight</span>
+                    <!-- Action Buttons: Quick Highlight & Copy for AI & Paste AI -->
+                    <div style="display: flex; gap: 4px; margin-top: 2px;">
+                        <button id="btn-quick-hl" class="amaes-btn amaes-btn-green" style="flex: 1; justify-content: center; padding: 4px 4px; cursor: pointer; font-size: 10px;" title="Highlight confirmed answers from database on current quiz questions (Shortcut: H)">
+                            ${ICONS.lightbulb} <span>Highlight (H)</span>
                         </button>
-                        <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Copy current question & choices formatted for AI (injects Course Context on 1st question) (Shortcut: C)">
-                            ${ICONS.copy} <span>Copy Q</span>
+                        <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 4px; cursor: pointer; font-size: 10px;" title="Copy current question & choices formatted for AI (Shortcut: C)">
+                            ${ICONS.copy} <span>Copy (C)</span>
                         </button>
-                        <button id="btn-copy-all-q" class="amaes-btn amaes-btn-outline" style="flex: 0.9; justify-content: center; padding: 4px 6px; cursor: pointer;" title="Copy all questions on this page formatted for AI with single unified Course Context">
-                            ${ICONS.copy} <span>All</span>
+                        <button id="btn-paste-ai-ans" class="amaes-btn amaes-btn-blue" style="flex: 1.1; justify-content: center; padding: 4px 4px; cursor: pointer; font-size: 10px;" title="Read AI answer from clipboard and auto-select matching choice (Shortcut: V)">
+                            ${ICONS.clipboard} <span>Paste AI (V)</span>
                         </button>
                     </div>
 
@@ -4623,10 +4718,15 @@
                             <input id="chk-auto-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-Mark as Done (Auto-Submit Quiz)</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a78bfa; cursor: pointer; font-weight: 600;" title="Keyboard shortcuts: Space / N for Next page, C for Copy AI, P for Pause/Start, 1-4 / A-D to pick choices">
-                            <input id="chk-keyboard-shortcuts" type="checkbox" ${enableKeyboardShortcuts ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Keyboard Shortcuts (N/Space=Next, C=AI, P=Pause)</span>
-                        </label>
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a78bfa; cursor: pointer; font-weight: 600;" title="Keyboard shortcuts: Space / N for Next page, C for Copy AI, V for Paste AI, P for Pause/Start, 1-4 / A-D to pick choices">
+                                <input id="chk-keyboard-shortcuts" type="checkbox" ${enableKeyboardShortcuts ? 'checked' : ''} style="cursor: pointer;" />
+                                <span>Keyboard Shortcuts (N, C, V, P, 1-4)</span>
+                            </label>
+                            <button id="btn-show-shortcuts-guide" type="button" class="amaes-inline-btn" style="padding: 1px 6px; font-size: 9.5px; background: rgba(167, 139, 250, 0.15); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.3); border-radius: 4px; cursor: pointer; font-weight: 700;" title="View Keyboard Shortcuts Cheatsheet">
+                                [Keys]
+                            </button>
+                        </div>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Inject convenient 'Copy AI' and 'Copy Image' buttons directly above question cards in the Moodle page">
                             <input id="chk-show-in-q-btns" type="checkbox" ${showInQuestionAiBtns ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Show "Copy for AI" buttons inside questions</span>
@@ -4650,74 +4750,69 @@
                             </select>
                         </div>
                     ` : ''}
-                    <!-- Source URL Input & Auto-Find Button -->
-                    <div style="display: flex; flex-direction: column; gap: 3px;">
-                        <div style="display: flex; gap: 4px; align-items: center;">
-                            <input id="amauoed-url-input" type="text" value="${defaultAmauoedUrl}" placeholder="Paste or auto-find amauoed.com link..." title="AMAUOED course answer key URL" style="
-                                flex: 1;
-                                min-width: 0;
-                                background: var(--bg);
-                                color: var(--text-primary);
-                                border: 1px solid var(--border);
-                                padding: 5px 7px;
-                                border-radius: 5px;
-                                font-size: 11px;
-                                box-sizing: border-box;
-                                outline: none;
-                            " />
-                            <button id="btn-autofind-amauoed" type="button" class="amaes-btn amaes-btn-blue" style="width: auto; padding: 5px 8px; font-size: 10px; font-weight: 600; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;" title="Auto-find & link amauoed.com study guide for ${subCode}">
-                                ${ICONS.search} <span>Auto-Find</span>
-                            </button>
-                        </div>
-                        <div id="amauoed-url-match-badge" style="display: none; font-size: 10px; padding: 4px 6px; border-radius: 5px; margin-top: 1px; line-height: 1.35; box-sizing: border-box;"></div>
-                    </div>
 
-                    <!-- Fetch & Cache Button -->
-                    <button id="btn-fetch-amauoed" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 5px;" title="Scrape and cache questions from the linked AMAUOED course URL">
-                        ${ICONS.download} <span id="fetch-btn-label">${cachedQuestions ? `Refresh Database (${cachedQuestions.length} in DB)` : 'Fetch & Sync Database'}</span>
-                    </button>
-
-                    <!-- Highlight & Auto-Select Row -->
+                    <!-- Primary Cloud Sync & Push Row -->
                     <div style="display: flex; gap: 5px;">
-                        <button id="btn-hl-answers" class="amaes-btn amaes-btn-green" style="flex: 1.2; justify-content: center; padding: 5px 6px;" title="Highlight matching answers from database on current quiz">
-                            ${ICONS.lightbulb} <span>Highlight</span>
-                        </button>
-                        <button id="btn-select-answers" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 5px 6px;" title="Automatically select radio buttons / checkboxes for matched answers">
-                            ${ICONS.checkCircle} <span>Auto-Pick</span>
-                        </button>
-                    </div>
-
-                    <!-- Share, Multi-Import & Cloud Sync Section -->
-                    <div style="display: flex; gap: 5px;">
-                        <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Copy clean study guide text to clipboard to share on Messenger or Discord">
-                            ${ICONS.share} <span>Share</span>
-                        </button>
-                        <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Download cached verified answers as a JSON file">
-                            ${ICONS.download} <span>Export</span>
-                        </button>
-                        <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1.2; justify-content: center; padding: 4px 6px;" title="Import & cross-reference one or multiple JSON files from classmates with consensus conflict resolution">
-                            ${ICONS.upload} <span>Import Files</span>
-                        </button>
-                        <input id="file-import-json" type="file" multiple accept=".json" style="display: none;" />
-                    </div>
-
-                    <!-- Cloud Database Sync & Push Row -->
-                    <div style="display: flex; gap: 5px;">
-                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Pull verified answers directly from free GitHub community database">
+                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1.2; justify-content: center; padding: 5px 6px;" title="Pull verified answers directly from free GitHub community database">
                             ${ICONS.cloudDownload} <span>Cloud Sync</span>
                         </button>
-                        <button id="btn-cloud-push" class="amaes-btn" style="flex: 1; justify-content: center; padding: 4px 6px; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; border: none; font-weight: 600;" title="Push your cached answers directly to GitHub repository (via token)">
+                        <button id="btn-cloud-push" class="amaes-btn" style="flex: 0.9; justify-content: center; padding: 5px 6px; background: linear-gradient(135deg, #2563eb, #7c3aed); color: #fff; border: none; font-weight: 600;" title="Push your cached answers directly to GitHub repository (via token)">
                             ${ICONS.github} <span>Push</span>
                         </button>
-                        <button id="btn-config-cloud" class="amaes-btn amaes-btn-outline" style="flex: 0.7; justify-content: center; padding: 4px 6px;" title="Configure GitHub Token & Cloud Database Repository">
+                        <button id="btn-config-cloud" class="amaes-btn amaes-btn-outline" style="flex: 0.7; justify-content: center; padding: 5px 6px;" title="Configure GitHub Token & Cloud Database Repository">
                             ${ICONS.cloud} <span>Config</span>
                         </button>
                     </div>
 
                     <!-- 1-Click Community Contribution Hub -->
-                    <button id="btn-contribute-db" class="amaes-btn" style="justify-content: center; padding: 6px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" title="Share all collected verified answers to the community GitHub hub with automated anti-sabotage merge protection">
+                    <button id="btn-contribute-db" class="amaes-btn" style="justify-content: center; padding: 7px; background: linear-gradient(135deg, #10b981, #047857); color: #fff; border: none; font-weight: 700; font-size: 11px; cursor: pointer; border-radius: 6px;" title="Share all collected verified answers to the community GitHub hub with automated anti-sabotage merge protection">
                         ${ICONS.upload} <span>Share Database to Community Hub</span>
                     </button>
+
+                    <!-- Share, Multi-Import & Export Section -->
+                    <div style="display: flex; gap: 5px;">
+                        <button id="btn-share-guide" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Copy clean study guide text to clipboard to share on Messenger or Discord">
+                            ${ICONS.share} <span>Share Text</span>
+                        </button>
+                        <button id="btn-export-json" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 4px 6px;" title="Download cached verified answers as a JSON file">
+                            ${ICONS.download} <span>Export</span>
+                        </button>
+                        <button id="btn-import-json" class="amaes-btn amaes-btn-outline" style="flex: 1.1; justify-content: center; padding: 4px 6px;" title="Import & cross-reference JSON files with consensus conflict resolution">
+                            ${ICONS.upload} <span>Import</span>
+                        </button>
+                        <input id="file-import-json" type="file" multiple accept=".json" style="display: none;" />
+                    </div>
+
+                    <!-- AMAUOED Scraper (Collapsible Accordion) -->
+                    <details style="border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 7px; background: rgba(0,0,0,0.15);">
+                        <summary style="font-size: 10px; font-weight: 700; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
+                            <span>AMAUOED Scraper (Fallback)</span>
+                            <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
+                        </summary>
+                        <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 6px;">
+                            <div style="display: flex; gap: 4px; align-items: center;">
+                                <input id="amauoed-url-input" type="text" value="${defaultAmauoedUrl}" placeholder="Paste or auto-find amauoed.com link..." title="AMAUOED course answer key URL" style="
+                                    flex: 1;
+                                    min-width: 0;
+                                    background: var(--bg);
+                                    color: var(--text-primary);
+                                    border: 1px solid var(--border);
+                                    padding: 4px 6px;
+                                    border-radius: 5px;
+                                    font-size: 10.5px;
+                                    box-sizing: border-box;
+                                    outline: none;
+                                " />
+                                <button id="btn-autofind-amauoed" type="button" class="amaes-btn amaes-btn-blue" style="width: auto; padding: 4px 6px; font-size: 9.5px; font-weight: 600; white-space: nowrap; flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px;" title="Auto-find & link amauoed.com study guide for ${subCode}">
+                                    ${ICONS.search} <span>Auto-Find</span>
+                                </button>
+                            </div>
+                            <div id="amauoed-url-match-badge" style="display: none; font-size: 10px; padding: 3px 5px; border-radius: 4px; margin-top: 1px; line-height: 1.35; box-sizing: border-box;"></div>
+                            <button id="btn-fetch-amauoed" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 4px; font-size: 10px;" title="Scrape and cache questions from the linked AMAUOED course URL">
+                                ${ICONS.download} <span id="fetch-btn-label">${cachedQuestions ? `Scrape & Cache (${cachedQuestions.length} in DB)` : 'Scrape & Cache'}</span>
+                            </button>
+                        </div>
+                    </details>
 
                     <!-- Auto Settings for Review / Sync -->
                     <div style="display: flex; flex-direction: column; gap: 4px; background: var(--surface-subtle); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
@@ -5663,11 +5758,29 @@
                     showToast(willIncludeContext ? 'Question copied with Course AI Context!' : 'Question & choices copied for AI!');
                     setLog(willIncludeContext ? 'Copied current question with Course AI Context!' : 'Copied current question & choices for AI!', "var(--accent-green)");
                     setTimeout(() => {
-                        btnCopyCurrQ.innerHTML = `${ICONS.copy} <span>Copy Question</span>`;
+                        btnCopyCurrQ.innerHTML = `${ICONS.copy} <span>Copy (C)</span>`;
                     }, 1800);
                 } catch (err) {
                     setLog("Failed to copy to clipboard.", "var(--accent-pink)");
                 }
+            };
+        }
+
+        const btnPasteAiAns = document.getElementById('btn-paste-ai-ans');
+        if (btnPasteAiAns) {
+            btnPasteAiAns.onclick = () => {
+                autoSelectFromAiClipboard();
+            };
+        }
+
+        const btnShowShortcutsGuide = document.getElementById('btn-show-shortcuts-guide');
+        if (btnShowShortcutsGuide) {
+            btnShowShortcutsGuide.onclick = () => {
+                showWelcomeOnboardingModal(true);
+                setTimeout(() => {
+                    const sec = document.getElementById('welcome-shortcuts-section');
+                    if (sec) sec.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 100);
             };
         }
 
