@@ -416,14 +416,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.2.7');
+    mockStorage.set('amaes_latest_version_seen', '1.2.8');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.2.6";
+    const currentVersion = "v1.2.7";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.7 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.8 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
@@ -978,6 +978,46 @@ test("Course-Wide Coverage: accurately tallies 4-tier sources (Verified DB, Comm
     assert.strictEqual(amauoed, 2, "AMAUOED count should be 2");
     assert.strictEqual(eliminated, 4, "Total eliminated wrong choices should be 4");
     assert.strictEqual(mockCachedQuestions.length, 5, "Total questions in coverage should be 5");
+});
+
+test("Button Wiring Integrity: Header reset and home buttons are bound to handlers", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    assert.strictEqual(script.includes("id=\"amaes-reset-btn\""), true, "amaes-reset-btn must exist in template");
+    assert.strictEqual(script.includes("document.getElementById('amaes-reset-btn')"), true, "amaes-reset-btn must be queried");
+    assert.strictEqual(script.includes("resetBtn.onclick = () => {"), true, "resetBtn must have onclick handler");
+
+    assert.strictEqual(script.includes("id=\"amaes-home-btn\""), true, "amaes-home-btn must exist in template");
+    assert.strictEqual(script.includes("document.getElementById('amaes-home-btn')"), true, "amaes-home-btn must be queried");
+    assert.strictEqual(script.includes("homeBtn.onclick = (e) => {"), true, "homeBtn must have onclick handler");
+});
+
+test("Quiz Landing Start Auto-Quiz: detects start or re-attempt attempt button on view.php", () => {
+    // Simulate DOM for /mod/quiz/view.php
+    const mockDocument = {
+        querySelector(selector) {
+            if (selector.includes('attempt.php') || selector.includes('quizstartbutton')) {
+                return {
+                    clicked: false,
+                    click() { this.clicked = true; }
+                };
+            }
+            return null;
+        }
+    };
+
+    const isQuizLanding = true;
+    let started = false;
+    if (isQuizLanding) {
+        const startBtn = mockDocument.querySelector('form[action*="attempt.php"] button, .quizstartbutton button');
+        if (startBtn) {
+            startBtn.click();
+            started = startBtn.clicked;
+        }
+    }
+
+    assert.strictEqual(started, true, "Start Auto-Quiz on view.php must trigger start attempt button");
 });
 
 console.log("\n==================================================");

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.6
+// @version      1.2.7
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.6";
+    const SCRIPT_VERSION = "v1.2.7";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2304,10 +2304,25 @@
 
             // 5. Highlight Database Answers: 'H'
             if (key === 'H') {
-                const hlBtn = document.getElementById('btn-quick-hl') || document.getElementById('btn-hl-answers') || document.getElementById('btn-db-quick-highlight');
-                if (hlBtn) {
-                    e.preventDefault();
-                    hlBtn.click();
+                e.preventDefault();
+                const cached = getCachedAnswers(subCode);
+                if (cached && cached.length > 0) {
+                    const res = highlightQuizAnswers(cached, false, true);
+                    showToast(`Highlighted ${res.matched}/${res.total} questions!`);
+                    setLog(`Shortcut [H]: Highlighted <b>${res.matched}/${res.total}</b> questions.`, "var(--accent-green)");
+                } else if (typeof autoFetchCloudAnswersIfMissing === 'function') {
+                    showToast("Checking cloud database for answers...");
+                    autoFetchCloudAnswersIfMissing(subCode).then(ok => {
+                        if (ok) {
+                            const fresh = getCachedAnswers(subCode);
+                            const res = highlightQuizAnswers(fresh, false, true);
+                            showToast(`Highlighted ${res.matched}/${res.total} questions from cloud!`);
+                        } else {
+                            showToast(`No answers found in database for ${subCode}`);
+                        }
+                    });
+                } else {
+                    showToast(`No answers cached for ${subCode}`);
                 }
                 return;
             }
@@ -6610,6 +6625,17 @@
         if (btnMasterAutoQuiz) {
             btnMasterAutoQuiz.onclick = () => {
                 if (!checkIsQuizAttemptPage() && !autoQuizMode) {
+                    // Check if student is on the quiz view/start page (/mod/quiz/view.php)
+                    const isQuizLanding = window.location.pathname.includes('/mod/quiz/view.php');
+                    if (isQuizLanding) {
+                        const startBtn = document.querySelector('form[action*="attempt.php"] button, form[action*="attempt.php"] input[type="submit"], .quizstartbutton button, .quizstartbutton input[type="submit"], #region-main button.btn-primary, #region-main input.btn-primary');
+                        if (startBtn) {
+                            showToast("Starting quiz attempt...", 2000);
+                            setLog("Starting quiz attempt from introduction page...", "var(--accent-green)");
+                            startBtn.click();
+                            return;
+                        }
+                    }
                     showToast("Open any quiz attempt to start auto-quiz!", 3000);
                     setLog("Open any quiz attempt to start auto-quiz.", "var(--accent-blue)");
                     return;
@@ -6711,7 +6737,8 @@
             btnCopyCurrQ.onclick = async () => {
                 const queList = document.querySelectorAll('.que');
                 if (queList.length === 0) {
-                    setLog("<b>No questions found</b> on this page.", "var(--accent-pink)");
+                    showToast("No quiz questions found on this page! Enter a quiz attempt first.", 3500);
+                    setLog("<b>No questions found</b> on this page. Open a quiz attempt first.", "var(--accent-pink)");
                     return;
                 }
                 const qData = extractQuestionData(queList[0]);
@@ -6726,6 +6753,7 @@
                         btnCopyCurrQ.innerHTML = `${ICONS.copy} <span>Copy Question (C)</span>`;
                     }, 1800);
                 } catch (err) {
+                    showToast("Failed to copy question to clipboard.");
                     setLog("Failed to copy to clipboard.", "var(--accent-pink)");
                 }
             };
@@ -6750,10 +6778,11 @@
         }
 
         if (btnCopyAllQ) {
-            if (btnCopyAllQ) btnCopyAllQ.onclick = async () => {
+            btnCopyAllQ.onclick = async () => {
                 const queList = document.querySelectorAll('.que');
                 if (queList.length === 0) {
-                    setLog("<b>No questions found</b> on this page.", "var(--accent-pink)");
+                    showToast("No quiz questions found on this page! Enter a quiz attempt first.", 3500);
+                    setLog("<b>No questions found</b> on this page. Open a quiz attempt first.", "var(--accent-pink)");
                     return;
                 }
                 const text = formatAllQuestionsForAI(aiPromptHint);
@@ -6766,6 +6795,7 @@
                         btnCopyAllQ.innerHTML = `${ICONS.copy} <span>Copy All</span>`;
                     }, 1800);
                 } catch (err) {
+                    showToast("Failed to copy questions to clipboard.");
                     setLog("Failed to copy to clipboard.", "var(--accent-pink)");
                 }
             };
@@ -6968,7 +6998,7 @@
                     }
                 } catch (err) {
                     console.error('Auto-find failed:', err);
-                    showToast('Failed to auto-find amauoed link.');
+                    showToast('Failed to auto-find amauoed link: ' + err.message);
                     setLog('Error searching amauoed: ' + err.message, 'var(--accent-pink)', 'Plan: Enter link manually');
                 } finally {
                     btnAutofindAmauoed.disabled = false;
@@ -6977,7 +7007,7 @@
             };
         }
 
-setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', 'amaes_pref_mod_amauoed', true);
+        setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', 'amaes_pref_mod_amauoed', true);
 
         if (chkAutoHlQuiz) chkAutoHlQuiz.onchange = () => {
             autoHighlightQuiz = chkAutoHlQuiz.checked;
@@ -6988,6 +7018,7 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
         if (fetchBtn) fetchBtn.onclick = async () => {
             const url = amauoedUrlInput.value.trim();
             if (!url) {
+                showToast("Please enter an amauoed.com course URL or click 'Auto-Find' first!");
                 setLog("Please enter a valid amauoed.com course URL.", "var(--accent-pink)");
                 return;
             }
@@ -7096,9 +7127,10 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
         }
 
         if (btnExportJson) {
-            if (btnExportJson) btnExportJson.onclick = () => {
+            btnExportJson.onclick = () => {
                 const cached = getCachedAnswers(subCode);
                 if (!cached || cached.length === 0) {
+                    showToast(`No answers cached yet to export for ${subCode || 'this course'}!`);
                     setLog("No answers cached to export!", "var(--accent-pink)");
                     return;
                 }
@@ -7351,13 +7383,18 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
         const modHlBody = document.getElementById('mod-highlighter-body');
         const modHlArrow = document.getElementById('mod-highlighter-arrow');
 
-setupPersistentAccordion('mod-highlighter-header', 'mod-highlighter-body', 'mod-highlighter-arrow', 'amaes_pref_mod_hl', false);
+        setupPersistentAccordion('mod-highlighter-header', 'mod-highlighter-body', 'mod-highlighter-arrow', 'amaes_pref_mod_hl', false);
 
         const triggerHighlight = (cat, label) => {
             const res = highlightItems(cat);
             if (res.error) {
+                showToast("Open a course page first to highlight items.");
                 setLog("<b>Action Blocked:</b> Open a course subject first.", "var(--accent-pink)");
+            } else if (res.count === 0) {
+                showToast(`No ${label} items found to highlight on this page.`);
+                setLog(`No ${label} items found on this page.`, "var(--accent-amber)");
             } else {
+                showToast(`Highlighted ${res.count} ${label} items!`);
                 setLog(`Highlighted <b>${res.count}</b> ${label} items on page.`, "var(--accent-green)");
             }
         };
@@ -7371,8 +7408,9 @@ setupPersistentAccordion('mod-highlighter-header', 'mod-highlighter-body', 'mod-
         const _el__btn_hl_all_ = document.getElementById('btn-hl-all');
         if (_el__btn_hl_all_) _el__btn_hl_all_.onclick = () => triggerHighlight('all', 'total');
         const _el__btn_hl_clear_ = document.getElementById('btn-hl-clear');
-        if (_el__btn_hl_clear_) _el__btn_hl_clear_.onclick = () => {;
+        if (_el__btn_hl_clear_) _el__btn_hl_clear_.onclick = () => {
             clearAllHighlights();
+            showToast("Cleared all highlights.");
             setLog("Cleared all highlights.", "var(--text-muted)");
         };
 
@@ -7401,45 +7439,78 @@ setupPersistentAccordion('mod-highlighter-header', 'mod-highlighter-body', 'mod-
         const copyKeywordBtn = document.getElementById('btn-copy-keyword');
         const openGoogleBtn = document.getElementById('btn-open-google');
 
-setupPersistentAccordion('mod-search-header', 'mod-search-body', 'mod-search-arrow', 'amaes_pref_mod_search', false);
+        setupPersistentAccordion('mod-search-header', 'mod-search-body', 'mod-search-arrow', 'amaes_pref_mod_search', false);
 
         if (copyKeywordBtn) copyKeywordBtn.onclick = async () => {
-            const query = keywordInput.value.trim();
-            if (!query) return;
+            const query = keywordInput ? keywordInput.value.trim() : '';
+            if (!query) {
+                showToast("Enter a search term first!");
+                return;
+            }
             try {
                 await copyToClipboard(query);
                 setLog(`Copied: "<b>${query}</b>"`, "var(--accent-green)");
                 copyKeywordBtn.innerHTML = `${ICONS.check} <span>Copied!</span>`;
+                showToast(`Copied search query: "${query}"`);
                 setTimeout(() => {
                     copyKeywordBtn.innerHTML = `${ICONS.copy} <span>Copy</span>`;
                 }, 2000);
             } catch (e) {
+                showToast("Failed to copy search keyword.");
                 setLog("Failed to copy search keyword.", "var(--accent-pink)");
             }
         };
 
         if (openGoogleBtn) openGoogleBtn.onclick = async () => {
-            const query = keywordInput.value.trim();
-            if (!query) return;
+            const query = keywordInput ? keywordInput.value.trim() : '';
+            if (!query) {
+                showToast("Enter a search term first!");
+                return;
+            }
             try {
                 await copyToClipboard(query);
             } catch (e) {}
 
             const url = `https://www.google.com/search?q=${encodeURIComponent(query)}`;
             window.open(url, '_blank');
+            showToast(`Opened Google search for "${query}"`);
             setLog(`Opened Google search for: "<b>${query}</b>"`, "var(--accent-blue)");
         };
+
+        // Header Reset Settings Button Handler
+        const resetBtn = document.getElementById('amaes-reset-btn');
+        if (resetBtn) {
+            resetBtn.onclick = () => {
+                const ok = confirm("Reset all toolkit settings to safe defaults?");
+                if (ok) {
+                    resetAllSettingsToDefault();
+                    showToast("Settings reset to safe defaults!");
+                }
+            };
+        }
+
+        // Header Home / Dashboard Navigation Button Handler
+        const homeBtn = document.getElementById('amaes-home-btn');
+        if (homeBtn) {
+            homeBtn.onclick = (e) => {
+                e.preventDefault();
+                showToast("Navigating to My Courses...");
+                window.location.href = getSemesterCoursesUrl();
+            };
+        }
 
         // Theme Toggle Handler
         if (themeBtn) themeBtn.onclick = () => {
             const nextTheme = currentTheme === 'dark' ? 'light' : 'dark';
             applyTheme(nextTheme);
+            showToast(`Theme switched to ${nextTheme} mode`);
         };
 
         // Header Version Pill Click -> Check for Updates
         const versionPill = document.getElementById('amaes-version-pill');
         if (versionPill) {
             versionPill.onclick = () => {
+                showToast("Checking GitHub for updates...");
                 checkForScriptUpdates(true);
             };
         }
@@ -7562,6 +7633,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
             if (isRunning) return;
 
             if (!checkIsCoursePage()) {
+                showToast("Open a course page first to use Activity Auto-Marker!");
                 setLog("<b>Action Blocked:</b> You are not on a course page. Open a course subject first.", "var(--accent-pink)");
                 return;
             }
@@ -7575,16 +7647,19 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
 
             const items = findButtons(goal, category);
             if (items.length === 0) {
+                showToast(`No uncompleted ${category} items found to ${goal === 'mark_done' ? 'mark' : 'undo'}!`);
                 setLog(`No matching items found for: <b>${category}</b> (${goal})!`, "var(--accent-green)");
                 finish();
                 return;
             }
 
+            showToast(`Found ${items.length} ${category} items to ${goal === 'mark_done' ? 'mark' : 'undo'}. Processing...`, 2500);
             setLog(`Found ${items.length} items. Starting...`);
 
             let processedCount = 0;
             for (let i = 0; i < items.length; i++) {
                 if (shouldStop) {
+                    showToast(`Stopped. Processed ${processedCount} items.`);
                     setLog(`Stopped. Processed ${processedCount} items.`, "var(--accent-amber)");
                     break;
                 }
@@ -7600,6 +7675,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
             }
 
             if (!shouldStop) {
+                showToast(`Finished ${actionLabel.toLowerCase()} ${processedCount} items!`);
                 setLog(`Successfully finished ${actionLabel.toLowerCase()} ${processedCount} items!`, "var(--accent-green)");
             }
 
@@ -7613,6 +7689,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
 
         if (stopBtn) stopBtn.onclick = () => {
             shouldStop = true;
+            showToast("Stopping after current item...");
             setLog('Stopping after current item...', "var(--accent-amber)");
         };
 
