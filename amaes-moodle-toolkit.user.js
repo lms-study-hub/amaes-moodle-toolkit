@@ -2520,7 +2520,7 @@
                     if (isDirectMatch || isMultiAnswerMatch) {
                         foundMatchForQuestion = true;
 
-                        const isAmauoed = cand.source === 'amauoed';
+                        const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
                         const isDeduced = cand.deduced === true;
                         const sourceColor = isDeduced ? '#10b981' : (isAmauoed ? '#0284c7' : '#10b981');
                         const sourceBg = isDeduced ? 'rgba(16, 185, 129, 0.15)' : (isAmauoed ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.14)');
@@ -2754,7 +2754,7 @@
                 if (textInput && candidates.length > 0) {
                     const bestCand = candidates[0];
                     const bestAnswer = bestCand.ansRaw;
-                    const isAmauoed = bestCand.source === 'amauoed';
+                    const isAmauoed = Boolean((bestCand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(bestCand.sources) && bestCand.sources.some(s => s.toLowerCase().includes('amauoed'))));
                     const sourceColor = isAmauoed ? '#0284c7' : '#10b981';
                     const sourceBg = isAmauoed ? 'rgba(2, 132, 199, 0.1)' : 'rgba(16, 185, 129, 0.1)';
                     const sourceTitle = isAmauoed ? 'Suggested (amauoed.com):' : 'Suggested (Verified DB):';
@@ -3396,9 +3396,9 @@
                 if (cand.ansRaw) {
                     const isDeduced = Boolean(cand.deduced);
                     const isVerified = Boolean(cand.verified);
-                    const isAmauoed = cand.source === 'amauoed';
+                    const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
                     const prob = isVerified ? 100 : (isAmauoed ? 95 : 90);
-                    const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : `${prob}% Probability`);
+                    const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : (isAmauoed ? 'AMAUOED • 95% Probability' : `${prob}% Probability`));
                     detectedAnswer = {
                         text: cand.ansRaw,
                         label: label,
@@ -3746,6 +3746,7 @@
                     quizTitle: newItem.quizTitle || '',
                     wrongAnswers: incomingWrong,
                     confirmations: ansRaw ? 1 : 0,
+                    source: newItem.source || sourceLabel,
                     sources: [sourceLabel]
                 };
 
