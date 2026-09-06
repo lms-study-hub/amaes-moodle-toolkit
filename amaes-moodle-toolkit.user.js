@@ -2043,6 +2043,8 @@
             });
 
             if (candidates.length === 0) return;
+            // Sort candidates by verification and consensus confirmations descending
+            candidates.sort((a, b) => ((b.verified ? 10 : 0) + (b.confirmations || 1)) - ((a.verified ? 10 : 0) + (a.confirmations || 1)));
 
             // Clean up any prior highlighting or elimination badges on this question
             que.querySelectorAll('.amaes-highlighted-choice, .amaes-eliminated-choice').forEach(el => {
@@ -2089,9 +2091,13 @@
             if (choiceRows.length === 0) {
                 choiceRows = que.querySelectorAll('.answer label');
             }
+            const isRadio = que.querySelector('.answer input[type="radio"]') !== null;
             let foundMatchForQuestion = false;
 
             choiceRows.forEach(row => {
+                // If it is a single-choice radio question and we already highlighted the top verified answer, avoid double-highlighting
+                if (isRadio && foundMatchForQuestion) return;
+
                 const label = row.querySelector('label') || row;
                 const input = row.querySelector('input[type="radio"], input[type="checkbox"]');
                 
@@ -2108,12 +2114,14 @@
 
                 // 1. Check against verified candidate answers
                 for (const cand of candidates) {
-                    const ansNorm = cand.ansNorm;
+                    const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || cand.answer || '');
                     if (!ansNorm) continue;
                     const isDirectMatch = choiceText === ansNorm;
+                    const isMultiAnswerMatch = (ansNorm.includes(',') || ansNorm.includes(';') || ansNorm.includes('&')) &&
+                        ansNorm.split(/[,;&]+/).map(s => normalizeChoice(s)).includes(choiceText);
                     const isContained = (choiceText.length > 5 && ansNorm.length > 5) && (choiceText.includes(ansNorm) || ansNorm.includes(choiceText));
 
-                    if (isDirectMatch || isContained) {
+                    if (isDirectMatch || isMultiAnswerMatch || isContained) {
                         foundMatchForQuestion = true;
 
                         const isAmauoed = cand.source === 'amauoed';
@@ -3729,11 +3737,11 @@
             let isVerified = false;
             const wrongAnswers = [];
 
-            // 1. Check for explicit Moodle .rightanswer box
+            // 1. Check for explicit Moodle .rightanswer box (handles both singular and plural answers)
             const rightElem = que.querySelector('.rightanswer, .outcome .rightanswer');
             if (rightElem) {
                 let raw = cleanDOMToAI(rightElem);
-                raw = raw.replace(/^The correct answer is:?\s*['"]?/i, '').replace(/['"]?\s*$/i, '').trim();
+                raw = raw.replace(/^The correct answers? (is|are):?\s*['"]?/i, '').replace(/['"]?\s*$/i, '').trim();
                 if (raw) {
                     rightAnswer = raw;
                     isVerified = true;
@@ -3756,9 +3764,9 @@
                 if (text) checkedTexts.push(text);
             });
 
-            // If user got full mark, the selected choice is verified correct!
+            // If user got full mark, the selected choice(s) are verified correct!
             if (!rightAnswer && isFullMark && checkedTexts.length > 0) {
-                rightAnswer = checkedTexts[0];
+                rightAnswer = checkedTexts.length === 1 ? checkedTexts[0] : checkedTexts.join(', ');
                 isVerified = true;
             } else if (!rightAnswer && isFullMark) {
                 const textInput = que.querySelector('input[type="text"].form-control, input.form-control');
@@ -4095,18 +4103,22 @@
         `;
 
         function generatePayload(code, qList) {
+            // Only export questions that have a verified or deduced answer
+            const validQuestions = qList.filter(q => Boolean(q.ansRaw || q.answer || q.correctAnswer));
             return {
                 subjectCode: code,
                 subjectName: (typeof courseInfo !== 'undefined' && courseInfo && courseInfo.code === code) ? courseInfo.fullTitle : code,
                 contributor: "community",
                 timestamp: new Date().toISOString(),
-                totalQuestions: qList.length,
-                questions: qList.map(q => ({
-                    question: q.question || q.qText || "",
-                    answer: q.answer || q.correctAnswer || "",
+                totalQuestions: validQuestions.length,
+                questions: validQuestions.map(q => ({
+                    question: q.qRaw || q.question || q.qText || "",
+                    answer: q.ansRaw || q.answer || q.correctAnswer || "",
                     choices: q.choices || [],
                     wrongAnswers: Array.isArray(q.wrongAnswers) ? q.wrongAnswers.map(w => typeof w === 'string' ? w : (w && w.text ? w.text : w)) : [],
                     confidence: typeof q.confidence === 'number' ? q.confidence : 1.0,
+                    period: q.period || q.term || 'General',
+                    quizTitle: q.quizTitle || '',
                     source: q.source || "community_contribute"
                 }))
             };
@@ -4116,7 +4128,7 @@
             const questions = allDbs[targetCode] || [];
             const payload = generatePayload(targetCode, questions);
             const payloadStr = JSON.stringify(payload, null, 2);
-            const verifiedCount = questions.filter(q => q.answer || q.correctAnswer).length;
+            const verifiedCount = questions.filter(q => q.ansRaw || q.answer || q.correctAnswer).length;
             const eliminatedCount = questions.reduce((acc, q) => acc + (Array.isArray(q.wrongAnswers) ? q.wrongAnswers.length : 0), 0);
             const hasPatToken = Boolean(localStorage.getItem('amaes_github_token'));
 
