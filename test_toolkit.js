@@ -2351,6 +2351,25 @@ test("Persistent Update Now Button: auto-checks updates, displays persistent Upd
     assert.ok(script.includes("window.open(SCRIPT_RAW_URL, '_blank')"), "Must open raw userscript installer on update click");
 });
 
+// --------------------------------------------------
+test("User-Friendly Terminology: 'Harvest' jargon replaced with 'Collect & Share Anonymously' in UI", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // 1. Verify Welcome Modal card title and toggle
+    assert.ok(script.includes("Collect & Share Anonymously"), "Welcome modal must have 'Collect & Share Anonymously' header");
+    assert.ok(script.includes("Share Anonymously to the World"), "Must emphasize sharing anonymously to the world");
+    assert.ok(script.includes("Auto-collect confirmed answers from past quizzes"), "Must use 'Auto-collect' instead of 'Auto-harvest'");
+
+    // 2. Verify Database tab 1-click action button
+    assert.ok(script.includes("Collect & Share Answers"), "DB tab button must be 'Collect & Share Answers'");
+    assert.ok(!script.includes("<span>Harvest Quizzes</span>"), "Old 'Harvest Quizzes' button label must be removed");
+
+    // 3. Verify settings checkboxes in DB Tab
+    assert.ok(script.includes("Auto-collect answers from past quizzes"), "DB settings must say 'Auto-collect answers from past quizzes'");
+    assert.ok(script.includes("Share anonymously to the world on Review"), "DB settings must say 'Share anonymously to the world on Review'");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.4.4
+// @version      1.4.5
 // @description  Universal Study Toolkit for AMA Online Education (AMAOEd / AMAES) Moodle portals. Features Auto-Harvesting with Dynamic Fallback, Multi-Course Grades Harvester, AI Prompt Formatter, Cross-Attempt Database, Cloud Sync, and Auto-Quiz Solver.
 // @author       Ry
 // @match        https://*.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.4.4";
+    const SCRIPT_VERSION = "v1.4.5";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -609,6 +609,7 @@
         keyboard: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M6 8h.001M10 8h.001M14 8h.001M18 8h.001M8 12h.001M12 12h.001M16 12h.001M7 16h10"/></svg>`,
         skipForward: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg>`,
         close: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>`,
+        link: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>`,
     };
 
 
@@ -5998,7 +5999,7 @@
 
     async function executeGradesHarvester(statusCallback) {
         if (isHarvestingInProgress) {
-            showToast("Harvester is already running in background...", 2500);
+            showToast("Answer collection is already running in background...", 2500);
             return { success: false, inProgress: true };
         }
         isHarvestingInProgress = true;
@@ -6013,13 +6014,13 @@
                 setLog("Scanning current Grade Report for completed quizzes...", "var(--accent-blue)", "Analyzing grade items");
                 const res = await harvestQuizzesFromGradesDoc(document, courseInfo.subjectCode, courseInfo.fullTitle, statusCallback);
                 if (res.success && res.count > 0) {
-                    setLog(`Harvest Complete! Loaded <b>${res.count}</b> verified answers into <b>${res.subCode}</b> DB.`, "var(--accent-green)", "Saved to local database");
-                    showToast(`Harvested ${res.count} verified answers! Saved to database.`, 4000);
+                    setLog(`Collection Complete! Loaded <b>${res.count}</b> verified answers into <b>${res.subCode}</b> DB.`, "var(--accent-green)", "Saved to local database");
+                    showToast(`Collected ${res.count} verified answers! Saved to database.`, 4000);
                     syncAutoQuizUI();
                     return res;
                 } else {
                     setLog("Grade report scan finished. No accessible reviews found or already cached.", "var(--accent-amber)", "Reviews may be restricted by instructor");
-                    showToast("No new answers harvested from this grade report.");
+                    showToast("No new answers collected from this grade report.");
                     return res;
                 }
             }
@@ -6047,13 +6048,13 @@
 
                     const res = await harvestQuizzesFromGradesDoc(gradesDoc, courseInfo.subjectCode, courseInfo.fullTitle, statusCallback);
                     if (res.success && res.count > 0) {
-                        setLog(`Harvest Complete! Loaded <b>${res.count}</b> verified answers into <b>${res.subCode}</b> DB.`, "var(--accent-green)", "Saved to local database");
-                        showToast(`Harvested ${res.count} verified answers! Saved to database.`, 4000);
+                        setLog(`Collection Complete! Loaded <b>${res.count}</b> verified answers into <b>${res.subCode}</b> DB.`, "var(--accent-green)", "Saved to local database");
+                        showToast(`Collected ${res.count} verified answers! Saved to database.`, 4000);
                         syncAutoQuizUI();
                         return res;
                     } else {
                         setLog("Grade report scan complete. No new accessible reviews found.", "var(--accent-amber)", "Quizzes may not have review attempts available");
-                        showToast("No accessible quiz reviews found to harvest for this course.");
+                        showToast("No accessible quiz reviews found to collect for this course.");
                         return res;
                     }
                 } catch (e) {
@@ -6066,7 +6067,7 @@
             // Scenario 3: On Dashboard or Multi-Course View
             const dashCourses = detectDashboardCourses().filter(c => c.courseId || c.gradesUrl);
             if (dashCourses.length > 0) {
-                setLog(`Scanning Grade Reports for <b>${dashCourses.length} enrolled courses</b>...`, "var(--accent-blue)", "Batch harvesting past semester quizzes");
+                setLog(`Scanning Grade Reports for <b>${dashCourses.length} enrolled courses</b>...`, "var(--accent-blue)", "Batch collecting past semester quizzes");
                 showToast(`Scanning grade reports for ${dashCourses.length} enrolled courses...`, 3000);
 
                 let totalHarvested = 0;
@@ -6096,8 +6097,8 @@
                 }
 
                 if (totalHarvested > 0) {
-                    setLog(`Harvest Complete! Loaded <b>${totalHarvested}</b> verified answers across ${dashCourses.length} courses.`, "var(--accent-green)", "All enrolled subjects updated in database");
-                    showToast(`Harvest complete! Loaded ${totalHarvested} verified answers across ${dashCourses.length} courses!`, 4500);
+                    setLog(`Collection Complete! Loaded <b>${totalHarvested}</b> verified answers across ${dashCourses.length} courses.`, "var(--accent-green)", "All enrolled subjects updated in database");
+                    showToast(`Collection complete! Loaded ${totalHarvested} verified answers across ${dashCourses.length} courses!`, 4500);
                     injectDashboardCourseBadges();
                     syncAutoQuizUI();
                     return { success: true, count: totalHarvested, quizzes: totalQuizzes, courses: dashCourses.length };
@@ -6111,12 +6112,12 @@
 
             // Fallback: If no course can be identified
             showToast("Open a course or your Dashboard first to scan completed quizzes!", 3500);
-            setLog("<b>Harvest Unavailable:</b> Open a course or your Dashboard first.", "var(--accent-pink)", "Plan: Go to Dashboard or Course page to harvest");
+            setLog("<b>Collection Unavailable:</b> Open a course or your Dashboard first.", "var(--accent-pink)", "Plan: Go to Dashboard or Course page to collect answers");
             return { success: false, error: 'No course or dashboard found' };
 
         } catch (e) {
-            showToast("Harvester error: " + e.message);
-            setLog(`Harvester error: ${e.message}`, "var(--accent-pink)", "Check network or permissions");
+            showToast("Collection error: " + e.message);
+            setLog(`Collection error: ${e.message}`, "var(--accent-pink)", "Check network or permissions");
             return { success: false, error: e.message };
         } finally {
             isHarvestingInProgress = false;
@@ -6449,10 +6450,10 @@
         const autoShareEnabled = localStorage.getItem('amaes_auto_community_share') !== 'false';
         if (autoShareEnabled) {
             setLog(`<b>Quiz Review Checked:</b> Extracted <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices for <b>${harvested.subjectCode}</b>. Uploaded to Community DB!`, "var(--accent-green)");
-            showToast(`Review Checked: Harvested ${harvested.harvestedCount} verified answers & uploaded to Community DB!`, 4000);
+            showToast(`Review Checked: Collected ${harvested.harvestedCount} verified answers & shared anonymously with the world!`, 4000);
         } else {
             setLog(`<b>Quiz Review Checked:</b> Extracted <b>${harvested.harvestedCount}</b> verified answers for <b>${harvested.subjectCode}</b> (Saved to Local DB, sharing is OFF).`, "var(--accent-blue)");
-            showToast(`Review Checked: Harvested ${harvested.harvestedCount} verified answers & saved locally!`, 4000);
+            showToast(`Review Checked: Collected ${harvested.harvestedCount} verified answers & saved locally!`, 4000);
         }
 
         const autoDlEnabled = localStorage.getItem('amaes_auto_dl_json') === 'true';
@@ -6938,7 +6939,7 @@
                             </div>
                             <div style="display: flex; gap: 8px; align-items: flex-start;">
                                 <span style="background: rgba(167, 139, 250, 0.25); color: #c4b5fd; font-size: 9.5px; font-weight: 700; padding: 1px 6px; border-radius: 3px; flex-shrink: 0; margin-top: 1px;">STEP 3</span>
-                                <span><b>Auto-Harvest & Share:</b> Completed past quizzes and reviews are harvested and anonymously shared so everyone always has up-to-date answers.</span>
+                                <span><b>Collect & Share Anonymously:</b> Completed past quizzes and reviews automatically collect verified correct answers and anonymously share them to the world so everyone always has up-to-date answers.</span>
                             </div>
                         </div>
                         ${statusHtml}
@@ -6948,12 +6949,12 @@
                     <div style="background: rgba(16, 185, 129, 0.08); border: 1.5px solid rgba(16, 185, 129, 0.35); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 7px;">
                         <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="font-weight: 700; color: #34d399; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.upload} <span>Community-Driven Auto-Share</span>
+                                ${ICONS.upload} <span>Share Anonymously to the World</span>
                             </div>
                             <span style="font-size: 9.5px; background: rgba(16, 185, 129, 0.2); color: #34d399; padding: 1px 6px; border-radius: 4px; font-weight: 700;">100% Anonymous</span>
                         </div>
                         <div style="font-size: 11px; color: var(--text-secondary, #cbd5e1); line-height: 1.45;">
-                            This toolkit is completely student-driven! As you complete quizzes using your account, verified answers are <b>automatically shared to the global student database</b> so question banks stay up to date for you and your classmates.
+                            This toolkit is completely student-driven! As you complete quizzes, verified correct answers are <b>automatically & anonymously shared to the world</b> so question banks stay complete and accurate for you and all classmates.
                         </div>
                         <div style="background: rgba(0, 0, 0, 0.25); border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 6px; padding: 7px 9px; font-size: 10px; color: #cbd5e1; line-height: 1.45;">
                             <div style="font-weight: 700; color: #e2e8f0; margin-bottom: 2px;">Safe & 100% Anonymous Guarantee:</div>
@@ -6966,13 +6967,13 @@
                                 <input id="welcome-chk-sync" type="checkbox" ${autoCloudSync ? 'checked' : ''} style="cursor: pointer;" />
                                 <span style="font-weight: 600;">Auto-sync verified questions when opening courses</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically & anonymously share verified answers to the community hub on quiz review">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically & anonymously share verified correct answers to the community database on quiz review">
                                 <input id="welcome-chk-share" type="checkbox" ${autoCommunityShare ? 'checked' : ''} style="cursor: pointer;" />
                                 <span style="font-weight: 600; color: #34d399;">Automatically & anonymously share verified answers to the world</span>
                             </label>
-                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically scan and harvest answers from completed quizzes on course or grade report load">
+                            <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-primary); cursor: pointer;" title="Automatically scan and collect correct answers from completed quizzes on course or grade report load">
                                 <input id="welcome-chk-harvest" type="checkbox" ${autoHarvestGrades ? 'checked' : ''} style="cursor: pointer;" />
-                                <span>Auto-harvest confirmed answers from past quizzes in Grade Report</span>
+                                <span>Auto-collect confirmed answers from past quizzes in Grade Report</span>
                             </label>
                         </div>
                     </div>
@@ -7417,13 +7418,13 @@
                         </div>
                     </div>
 
-                    <!-- Primary 1-Click Actions: Pull & Harvest -->
+                    <!-- Primary 1-Click Actions: Pull & Share -->
                     <div style="display: flex; gap: 6px;">
                         <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 7px; font-size: 11px; font-weight: 700;" title="Pull verified answers directly from free GitHub community database">
                             ${ICONS.cloudDownload} <span>Cloud Sync</span>
                         </button>
-                        <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="flex: 1; justify-content: center; padding: 7px; font-size: 11px; font-weight: 700;" title="Scan course Grade Report to harvest and sync all completed past quizzes">
-                            ${ICONS.download} <span>Harvest Quizzes</span>
+                        <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="flex: 1; justify-content: center; padding: 7px; font-size: 11px; font-weight: 700;" title="Scan course Grade Report to collect verified correct answers and share them anonymously to the world">
+                            ${ICONS.download} <span>Collect & Share Answers</span>
                         </button>
                     </div>
 
@@ -7486,9 +7487,9 @@
 
                     <!-- Auto Settings for Sync & Sharing -->
                     <div style="display: flex; flex-direction: column; gap: 4px; background: var(--surface-subtle); padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border-subtle);">
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically scan and harvest answers from completed quizzes on course or grade report load (Default: ON)">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically scan and collect verified answers from completed quizzes on course or grade report load (Default: ON)">
                             <input id="chk-auto-harvest-grades" type="checkbox" ${autoHarvestGrades ? 'checked' : ''} style="cursor: pointer;" />
-                            <span style="font-weight: 600; color: var(--accent-green);">Auto-harvest past quizzes from Grades</span>
+                            <span style="font-weight: 600; color: var(--accent-green);">Auto-collect answers from past quizzes</span>
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically pull and sync verified community answers when opening a course page">
                             <input id="chk-auto-cloud-sync" type="checkbox" ${autoCloudSync ? 'checked' : ''} style="cursor: pointer;" />
@@ -7498,9 +7499,9 @@
                             <input id="chk-auto-scrape-amauoed" type="checkbox" ${autoScrapeAmauoed ? 'checked' : ''} style="cursor: pointer;" />
                             <span style="font-weight: 600; color: var(--accent-purple);">Auto-scrape AMAUOED when missing</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically queue / share verified answers to Community Hub on quiz review (Default: ON)">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically & anonymously share verified correct answers to the community database on quiz review (Default: ON)">
                             <input id="chk-auto-community-share" type="checkbox" ${autoCommunityShare ? 'checked' : ''} style="cursor: pointer;" />
-                            <span style="font-weight: 600; color: var(--accent-green);">Auto-share verified answers on Review</span>
+                            <span style="font-weight: 600; color: var(--accent-green);">Share anonymously to the world on Review</span>
                         </label>
                     </div>
                 </div>
@@ -9012,17 +9013,17 @@
                 btnHarvestGradesDb.classList.add('amaes-pulse');
                 btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
                 showToast("Scanning completed quizzes for verified answers...", 2500);
-                setLog("Starting quiz harvest from Grade Reports...", "var(--accent-blue)", "Scanning completed attempts for verified answers");
+                setLog("Starting quiz answer collection & share...", "var(--accent-blue)", "Scanning completed attempts for verified answers");
                 executeGradesHarvester((curr, total, name) => {
                     btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
                 }).then(res => {
                     btnHarvestGradesDb.classList.remove('amaes-pulse');
                     if (res && res.success && res.count > 0) {
-                        btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
+                        btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>Collected ${res.count} Qs!</span>`;
                     } else if (res && res.inProgress) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>In Progress</span>`;
-                        showToast("Auto-harvester is currently scanning past quizzes in background. Please wait...", 3000);
-                        setLog("Harvester is <b>actively scanning</b> enrolled courses in background...", "var(--accent-blue)", "Scanning grade items for completed quizzes");
+                        showToast("Auto-collector is currently scanning past quizzes in background. Please wait...", 3000);
+                        setLog("Collector is <b>actively scanning</b> enrolled courses in background...", "var(--accent-blue)", "Scanning grade items for completed quizzes");
                     } else if (res && res.success && res.count === 0) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>All Up to Date</span>`;
                         showToast("Grade report scan complete. All completed quizzes are already in database!", 3500);
@@ -9033,7 +9034,7 @@
                     setTimeout(() => {
                         btnHarvestGradesDb.disabled = false;
                         btnHarvestGradesDb.classList.remove('amaes-pulse');
-                        btnHarvestGradesDb.innerHTML = `${ICONS.download} <span>Harvest Quizzes</span>`;
+                        btnHarvestGradesDb.innerHTML = `${ICONS.download} <span>Collect & Share Answers</span>`;
                     }, 4000);
                 });
             };
