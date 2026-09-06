@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.0
+// @version      1.3.1
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.0";
+    const SCRIPT_VERSION = "v1.3.1";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -1217,47 +1217,99 @@
     }
 
     // Extract questions and correct answers from AMAUOED HTML
+    // Extract questions, choices, distractors, and correct answers from AMAUOED HTML
     function parseAmauoedHtml(html) {
         const results = [];
         const parser = new DOMParser();
         const doc = parser.parseFromString(html, 'text/html');
 
-        const cards = doc.querySelectorAll('.card.mb-2, .card-body');
+        let cards = Array.from(doc.querySelectorAll('.card.mb-2, .card'));
+        if (cards.length === 0) {
+            cards = Array.from(doc.querySelectorAll('.card-body'));
+        }
+
         cards.forEach(card => {
-            const qElem = card.querySelector('.mb-2, h5');
+            const qElem = card.querySelector('.mb-2, h5, .card-title, p.card-text');
             if (!qElem) return;
 
             const qRaw = qElem.innerText.trim();
             const qNorm = normalizeText(qRaw);
             if (!qNorm) return;
 
-            // Correct answer element with chip "Correct"
-            let ansRaw = "";
-            const correctChip = card.querySelector('.chip.bg-success, span.bg-success');
-            if (correctChip) {
-                const li = correctChip.closest('li') || correctChip.parentElement;
-                if (li) {
-                    // Clone to remove chip text
-                    const clone = li.cloneNode(true);
-                    const ch = clone.querySelector('.chip, span');
-                    if (ch) ch.remove();
-                    ansRaw = clone.innerText.trim();
-                }
+            // Extract all correct answer chips (supports multi-choice questions)
+            const correctList = [];
+            const correctChips = card.querySelectorAll('.chip.bg-success, span.bg-success, .badge.bg-success, .badge-success');
+            if (correctChips.length > 0) {
+                correctChips.forEach(ch => {
+                    const li = ch.closest('li') || ch.parentElement;
+                    if (li) {
+                        const clone = li.cloneNode(true);
+                        clone.querySelectorAll('.chip, span, .badge').forEach(c => c.remove());
+                        const txt = clone.innerText.trim();
+                        if (txt && !correctList.includes(txt)) {
+                            correctList.push(txt);
+                        }
+                    }
+                });
             } else {
                 // Fallback: check strong tag inside li
-                const strong = card.querySelector('li strong');
-                if (strong) ansRaw = strong.innerText.trim();
+                const strongs = card.querySelectorAll('li strong');
+                strongs.forEach(st => {
+                    const txt = st.innerText.trim();
+                    if (txt && !correctList.includes(txt)) {
+                        correctList.push(txt);
+                    }
+                });
             }
 
-            if (ansRaw) {
+            // Extract choices and wrong answers (distractors)
+            const allChoices = [];
+            const wrongAnswers = [];
+            const liElements = card.querySelectorAll('li');
+            liElements.forEach(li => {
+                const clone = li.cloneNode(true);
+                clone.querySelectorAll('.chip, span, .badge').forEach(c => c.remove());
+                const choiceTxt = clone.innerText.trim();
+                if (choiceTxt) {
+                    allChoices.push(choiceTxt);
+                    const isCorrect = correctList.some(ans => normalizeChoice(ans) === normalizeChoice(choiceTxt));
+                    if (!isCorrect && !wrongAnswers.includes(choiceTxt)) {
+                        wrongAnswers.push(choiceTxt);
+                    }
+                }
+            });
+
+            if (correctList.length > 0) {
+                const ansRaw = correctList.join(', ');
                 const ansNorm = normalizeChoice(ansRaw);
-                results.push({
+                const entry = {
                     qRaw,
                     qNorm,
                     ansRaw,
                     ansNorm,
                     source: 'amauoed'
-                });
+                };
+                if (correctList.length > 1) {
+                    entry.answers = correctList;
+                }
+                if (wrongAnswers.length > 0) {
+                    entry.wrongAnswers = normalizeWrongAnswers(wrongAnswers);
+                }
+                if (allChoices.length > 0) {
+                    entry.choices = allChoices;
+                }
+
+                const existingIdx = results.findIndex(r => r.qNorm === qNorm);
+                if (existingIdx >= 0) {
+                    if (entry.answers && Array.isArray(entry.answers)) {
+                        const curAnswers = results[existingIdx].answers || [results[existingIdx].ansRaw];
+                        results[existingIdx].answers = Array.from(new Set(curAnswers.concat(entry.answers)));
+                        results[existingIdx].ansRaw = results[existingIdx].answers.join(', ');
+                        results[existingIdx].ansNorm = normalizeChoice(results[existingIdx].ansRaw);
+                    }
+                } else {
+                    results.push(entry);
+                }
             }
         });
 
@@ -1271,8 +1323,9 @@
         let allQuestions = [];
         let page = 1;
         let hasMore = true;
+        const maxPages = 40; // High limit to cover 500+ question banks
 
-        while (hasMore && page <= 12) { // safety limit 12 pages
+        while (hasMore && page <= maxPages) {
             const pageUrl = page === 1 ? cleanBase : `${cleanBase}?page=${page}`;
             if (onProgress) onProgress(page, allQuestions.length);
 
@@ -1286,10 +1339,25 @@
                     break;
                 }
 
-                allQuestions = allQuestions.concat(questions);
+                // Merge and deduplicate questions on append
+                questions.forEach(newQ => {
+                    const existing = allQuestions.find(q => q.qNorm === newQ.qNorm);
+                    if (!existing) {
+                        allQuestions.push(newQ);
+                    } else if (newQ.answers && Array.isArray(newQ.answers)) {
+                        const curAnswers = existing.answers || [existing.ansRaw];
+                        existing.answers = Array.from(new Set(curAnswers.concat(newQ.answers)));
+                        existing.ansRaw = existing.answers.join(', ');
+                        existing.ansNorm = normalizeChoice(existing.ansRaw);
+                    }
+                });
 
-                // Check if there is a next page in pagination
-                const hasNextPage = html.includes(`page=${page + 1}`) || html.includes(`page=${page + 1}"`);
+                // DOM-based pagination check with string fallback
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+                const nextLink = doc.querySelector(`.pagination .page-item:not(.disabled) a[href*="page="], a[rel="next"], .pagination a.page-link[href*="page=${page + 1}"]`);
+                const hasNextPage = !!nextLink || html.includes(`page=${page + 1}`) || html.includes(`page=${page + 1}"`);
+
                 if (!hasNextPage) {
                     hasMore = false;
                 } else {
@@ -1427,85 +1495,182 @@
         localStorage.setItem(`amaes_amauoed_url_${code}`, url);
     }
 
-    // Auto-Search & Discover AMAUOED Link from Online Directory
+    // Auto-Search & Discover AMAUOED Link from Online Directory with DOM Card Parsing & 5-Tier Matching
     async function autoFindAmauoedLink(code, courseTitle = '') {
         if (!code) {
             setLog('No subject code detected to search', 'var(--accent-pink)', 'Plan: Open a course or quiz page first');
             return null;
         }
 
-        const cleanCode = code.toUpperCase().trim();
+        const cleanCode = code.toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
         const codeNum = cleanCode.replace(/\D+/g, '');
-        const codeDept = cleanCode.replace(/\d+/g, '').toLowerCase();
+        const codeDept = cleanCode.replace(/\d+/g, '').toUpperCase();
 
-        setLog(`Searching amauoed.com catalog for ${cleanCode}...`, 'var(--accent-blue)', 'Plan: Crawl course directory and harvest question bank');
+        setLog(`Searching amauoed.com catalog for <b>${cleanCode}</b>...`, 'var(--accent-blue)', 'Plan: Discover course directory and harvest question bank');
 
         // Check stored or built-in first
         const direct = getStoredAmauoedUrl(cleanCode);
         if (direct) {
             setStoredAmauoedUrl(cleanCode, direct);
-            setLog(`Auto-matched known link for ${cleanCode}!`, 'var(--accent-green)', 'Plan: Ready to fetch and sync question database');
+            setLog(`Auto-matched known link for <b>${cleanCode}</b>!`, 'var(--accent-green)', 'Plan: Ready to fetch and sync question database');
             return direct;
+        }
+
+        // Helper to match catalog entries
+        function matchInCatalog(courses) {
+            if (!Array.isArray(courses) || courses.length === 0) return null;
+
+            // Tier 1: Exact code match (e.g. CS6202 matches CS-6202 or CS6202)
+            const exact = courses.find(c => c.cleanCode === cleanCode || c.rawCode === cleanCode);
+            if (exact) return exact.url;
+
+            // Tier 2: Dept + Number exact match
+            if (codeDept && codeNum) {
+                const deptNum = courses.find(c => c.dept === codeDept && c.num === codeNum);
+                if (deptNum) return deptNum.url;
+            }
+
+            // Tier 3: Dept alias match + Number match
+            const ALIAS_MAP = {
+                'IT': ['ITE', 'IT'],
+                'ITE': ['IT', 'ITE'],
+                'CS': ['COMP', 'CSC', 'CS'],
+                'COMP': ['CS', 'COMP'],
+                'MATH': ['MTH', 'MATH'],
+                'MTH': ['MATH', 'MTH'],
+                'ACTG': ['ACC', 'IA', 'ACTG'],
+                'ACC': ['ACTG', 'ACC'],
+                'IA': ['ACTG', 'IA'],
+                'ENG': ['ENGL', 'ENG'],
+                'ENGL': ['ENG', 'ENGL'],
+                'PED': ['PE', 'PATHFIT', 'PED'],
+                'PE': ['PED', 'PATHFIT', 'PE'],
+                'PATHFIT': ['PE', 'PED', 'PATHFIT'],
+                'GE': ['GEC', 'GE'],
+                'GEC': ['GE', 'GEC'],
+                'NSTP': ['CWTS', 'NSTP'],
+                'CWTS': ['NSTP', 'CWTS']
+            };
+            const aliases = ALIAS_MAP[codeDept] || [codeDept];
+            if (codeNum) {
+                const aliasMatch = courses.find(c => aliases.includes(c.dept) && c.num === codeNum);
+                if (aliasMatch) return aliasMatch.url;
+            }
+
+            // Tier 4: Unique 4-digit number match (if exactly 1 course in catalog has this number)
+            if (codeNum && codeNum.length >= 3) {
+                const numMatches = courses.filter(c => c.num === codeNum);
+                if (numMatches.length === 1) return numMatches[0].url;
+            }
+
+            // Tier 5: Course title keyword overlap
+            if (courseTitle) {
+                const queryWords = courseTitle.toLowerCase()
+                    .replace(/[^a-z0-9\s]/g, '')
+                    .split(/\s+/)
+                    .filter(w => w.length > 3 && !['college', 'university', 'education', 'online', 'bachelor', 'science'].includes(w));
+                if (queryWords.length >= 2) {
+                    let bestMatch = null;
+                    let bestHits = 0;
+                    courses.forEach(c => {
+                        const titleLower = (c.title || '').toLowerCase();
+                        const hits = queryWords.filter(w => titleLower.includes(w)).length;
+                        if (hits > bestHits && hits >= 2) {
+                            bestHits = hits;
+                            bestMatch = c;
+                        }
+                    });
+                    if (bestMatch && (bestHits >= queryWords.length * 0.5 || bestHits >= 2)) {
+                        return bestMatch.url;
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        // Check local catalog cache (valid for 24 hours)
+        try {
+            const rawCat = localStorage.getItem('amaes_amauoed_catalog_v2');
+            if (rawCat) {
+                const parsedCat = JSON.parse(rawCat);
+                if (parsedCat && Array.isArray(parsedCat.courses) && (Date.now() - parsedCat.timestamp < 86400000)) {
+                    const found = matchInCatalog(parsedCat.courses);
+                    if (found) {
+                        setStoredAmauoedUrl(cleanCode, found);
+                        setLog(`Auto-matched link for <b>${cleanCode}</b> from catalog!`, 'var(--accent-green)', 'Plan: Ready to fetch and sync question database');
+                        return found;
+                    }
+                }
+            }
+        } catch (e) {
+            logDebug(`Catalog cache check error: ${e.message}`);
         }
 
         // Live crawl of amauoed.com/courses directory
         try {
             const html = await fetchAmauoedPage('https://amauoed.com/courses');
-            const urlMatches = html.match(/https:\/\/amauoed\.com\/courses\/[a-z0-9_-]+\/[a-z0-9_-]+/gi) || [];
-            const uniqueUrls = Array.from(new Set(urlMatches));
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(html, 'text/html');
 
-            // Populate dynamic directory
-            const dir = {};
-            uniqueUrls.forEach(u => {
-                const parts = u.split('/');
-                const dept = parts[parts.length - 2].toLowerCase();
-                const slug = parts[parts.length - 1].toLowerCase();
-                const m = slug.match(/(\d{3,4})/);
-                if (m) {
-                    const foundKey = (dept + m[1]).toUpperCase();
-                    dir[foundKey] = u;
+            const parsedCourses = [];
+            const linkElements = doc.querySelectorAll('a[href*="/courses/"]');
+            linkElements.forEach(a => {
+                let href = a.getAttribute('href') || '';
+                if (!href) return;
+                if (href.startsWith('/')) href = 'https://amauoed.com' + href;
+                if (!href.includes('/courses/')) return;
+
+                const card = a.closest('.card') || a.parentElement || a;
+                const titleElem = card.querySelector('.card-title') || a;
+                const subElem = card.querySelector('.card-subtitle');
+
+                const title = (titleElem ? titleElem.innerText : a.innerText || '').trim();
+                const subtitle = subElem ? subElem.innerText.trim() : '';
+
+                // Extract code from subtitle (e.g. "CS-6202 - 107 answers") or slug
+                let rawCode = '';
+                const subMatch = subtitle.match(/([A-Za-z]+[- ]?\d{3,4})/);
+                if (subMatch) {
+                    rawCode = subMatch[1];
+                } else {
+                    const slug = href.split('/').pop() || '';
+                    const slugMatch = slug.match(/([a-zA-Z]+[- ]?\d{3,4}|\d{3,4}[- ]?[a-zA-Z]+)/);
+                    if (slugMatch) rawCode = slugMatch[1];
+                }
+
+                const clean = rawCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
+                const num = clean.replace(/\D+/g, '');
+                const dept = clean.replace(/\d+/g, '').toUpperCase();
+
+                if (href && !parsedCourses.some(c => c.url === href)) {
+                    parsedCourses.push({
+                        url: href,
+                        title,
+                        subtitle,
+                        rawCode,
+                        cleanCode: clean,
+                        dept,
+                        num
+                    });
                 }
             });
-            localStorage.setItem('amaes_known_amauoed_directory', JSON.stringify(dir));
 
-            let match = null;
-
-            // 1. Strict key match in directory
-            if (dir[cleanCode]) match = dir[cleanCode];
-
-            // 2. Number + Dept match
-            if (!match && codeNum) {
-                for (const u of uniqueUrls) {
-                    const lower = u.toLowerCase();
-                    if (lower.includes(`-${codeNum}-`)) {
-                        if (codeDept && (lower.includes(`/${codeDept}/`) || lower.endsWith(`-${codeDept}`))) {
-                            match = u;
-                            break;
-                        }
-                        if (!match) match = u;
-                    }
-                }
+            // Save refreshed catalog to cache
+            if (parsedCourses.length > 0) {
+                localStorage.setItem('amaes_amauoed_catalog_v2', JSON.stringify({
+                    timestamp: Date.now(),
+                    courses: parsedCourses
+                }));
             }
 
-            // 3. Title keyword match
-            if (!match && courseTitle) {
-                const words = courseTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3);
-                for (const u of uniqueUrls) {
-                    const slug = u.split('/').pop().toLowerCase();
-                    const hits = words.filter(w => slug.includes(w));
-                    if (hits.length >= 2) {
-                        match = u;
-                        break;
-                    }
-                }
-            }
-
+            const match = matchInCatalog(parsedCourses);
             if (match) {
                 setStoredAmauoedUrl(cleanCode, match);
-                setLog(`Found & verified link for ${cleanCode}!`, 'var(--accent-green)', 'Plan: Saved to database. Ready to fetch.');
+                setLog(`Found & verified link for <b>${cleanCode}</b>!`, 'var(--accent-green)', 'Plan: Saved to database. Ready to fetch.');
                 return match;
             } else {
-                setLog(`No exact amauoed link found for ${cleanCode}`, 'var(--accent-amber)', 'Plan: Paste link manually or check Google');
+                setLog(`No exact amauoed link found for <b>${cleanCode}</b>`, 'var(--accent-amber)', 'Plan: Paste link manually or check Google');
                 return null;
             }
         } catch (err) {
@@ -1846,7 +2011,7 @@
         try {
             const courseInfo = detectCourseInfo();
             const subCode = courseInfo.subjectCode || 'CS6301';
-            const cached = getCachedAnswers(subCode);
+            let cached = getCachedAnswers(subCode);
             const queContainers = document.querySelectorAll('.que');
 
             if (queContainers.length === 0) {
@@ -1857,21 +2022,25 @@
             // 1. Highlight and Auto-Select verified answers from database (ONLY click if autoQuizMode is true)
             let res = { matched: 0, total: queContainers.length };
 
-            // AUTO-FETCH FROM CLOUD DATABASE FALLBACK: If local cache is empty, check cloud DB automatically!
+            // AUTO-FETCH FROM CLOUD DATABASE / AMAUOED FALLBACK: If local cache is empty, check cloud DB & AMAUOED!
             if (!cached || cached.length === 0) {
-                logDebug(`Local cache empty for ${subCode}. Checking community cloud database...`);
-                setLog(`Checking community cloud database for <b>${subCode}</b>...`, "var(--accent-blue)");
+                logDebug(`Local cache empty for ${subCode}. Checking community cloud database & AMAUOED...`);
+                setLog(`Checking database & AMAUOED for <b>${subCode}</b>...`, "var(--accent-blue)");
                 try {
-                    const cloudRes = await syncAnswersFromCloud(subCode);
+                    if (typeof autoFetchCloudAnswersIfMissing === 'function') {
+                        await autoFetchCloudAnswersIfMissing(subCode);
+                    } else {
+                        await syncAnswersFromCloud(subCode);
+                    }
                     const freshCached = getCachedAnswers(subCode);
                     if (freshCached && freshCached.length > 0) {
                         cached = freshCached;
-                        setLog(`Auto-loaded <b>${freshCached.length}</b> verified answers from Cloud DB!`, "var(--accent-green)");
-                        showToast(`Loaded ${freshCached.length} answers from Cloud!`);
+                        setLog(`Auto-loaded <b>${freshCached.length}</b> verified answers for <b>${subCode}</b>!`, "var(--accent-green)");
+                        showToast(`Loaded ${freshCached.length} answers!`);
                         syncAutoQuizUI();
                     }
                 } catch (e) {
-                    logDebug(`Cloud Sync fallback note: ${e.message}`);
+                    logDebug(`Auto-fetch fallback note: ${e.message}`);
                 }
             }
 
@@ -3851,13 +4020,18 @@
 
             // On attempt page load: ONLY run solver if Auto-Quiz is active; otherwise just highlight visually
             clearTimeout(pageLoadSolverTimer);
-            pageLoadSolverTimer = setTimeout(() => {
+            pageLoadSolverTimer = setTimeout(async () => {
                 if (autoQuizMode) {
                     runAutoQuizSolver(true);
                 } else {
                     const courseInfo = detectCourseInfo();
                     const subCode = courseInfo.subjectCode || 'CS6301';
-                    const cached = getCachedAnswers(subCode);
+                    let cached = getCachedAnswers(subCode);
+                    if ((!cached || cached.length === 0) && autoScrapeAmauoed && typeof autoFetchCloudAnswersIfMissing === 'function') {
+                        setLog(`Answers missing for <b>${subCode}</b>. Auto-fetching from AMAUOED / Cloud...`, 'var(--accent-blue)');
+                        await autoFetchCloudAnswersIfMissing(subCode);
+                        cached = getCachedAnswers(subCode);
+                    }
                     if (cached && cached.length > 0) {
                         highlightQuizAnswers(cached, false, false); // false = strictly NO auto-selection/clicks
                     }
@@ -4418,18 +4592,23 @@
                 return true;
             }
 
-            // 3. Fallback: Auto-discover AMAUOED link dynamically or use stored
-            const amauoedUrl = (typeof autoFindAmauoedLink === 'function')
-                ? await autoFindAmauoedLink(code)
-                : getStoredAmauoedUrl(code);
-            const alreadyScraped = localStorage.getItem(`amaes_amauoed_scraped_${code}`);
-            if (amauoedUrl && !alreadyScraped && typeof loadAllAmauoedAnswers === 'function') {
-                logDebug(`Auto-scraping AMAUOED URL for missing course ${code}: ${amauoedUrl}`);
-                const scraped = await loadAllAmauoedAnswers(amauoedUrl);
-                if (scraped && scraped.length > 0) {
-                    localStorage.setItem(`amaes_amauoed_scraped_${code}`, '1');
-                    mergeAnswersIntoCache(code, scraped, 'AMAUOED');
-                    return true;
+            // 3. Fallback: Auto-discover AMAUOED link dynamically or use stored (if autoScrapeAmauoed is enabled)
+            if (autoScrapeAmauoed) {
+                const amauoedUrl = (typeof autoFindAmauoedLink === 'function')
+                    ? await autoFindAmauoedLink(code)
+                    : getStoredAmauoedUrl(code);
+                const alreadyScraped = localStorage.getItem(`amaes_amauoed_scraped_${code}`);
+                if (amauoedUrl && !alreadyScraped && typeof loadAllAmauoedAnswers === 'function') {
+                    logDebug(`Auto-scraping AMAUOED URL for missing course ${code}: ${amauoedUrl}`);
+                    setLog(`Scraping AMAUOED answers for <b>${code}</b>...`, 'var(--accent-blue)', 'Plan: Crawl study guide and merge question bank');
+                    const scraped = await loadAllAmauoedAnswers(amauoedUrl);
+                    if (scraped && scraped.length > 0) {
+                        localStorage.setItem(`amaes_amauoed_scraped_${code}`, '1');
+                        mergeAnswersIntoCache(code, scraped, 'AMAUOED');
+                        setLog(`Auto-scraped <b>${scraped.length}</b> answers from AMAUOED for <b>${code}</b>!`, 'var(--accent-green)');
+                        showToast(`Loaded ${scraped.length} answers from AMAUOED!`);
+                        return true;
+                    }
                 }
             }
             return false;
@@ -5925,6 +6104,10 @@
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-muted); cursor: pointer;" title="Include database answer suggestion and confidence percentage in copied question prompt">
                             <input id="chk-copy-confidence" type="checkbox" ${copyIncludeConfidence ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Include DB answer hint in copied prompt</span>
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #c084fc; cursor: pointer; font-weight: 600;" title="Automatically discover and fetch verified answers from AMAUOED study guides if missing from database (Default: ON)">
+                            <input id="chk-auto-scrape-amauoed-quiz" type="checkbox" ${autoScrapeAmauoed ? 'checked' : ''} style="cursor: pointer;" />
+                            <span>Auto-fetch from AMAUOED if answers missing</span>
                         </label>
                     </div>
 
@@ -7681,13 +7864,20 @@
         }
 
         const chkAutoScrapeAmauoed = document.getElementById('chk-auto-scrape-amauoed');
+        const chkAutoScrapeAmauoedQuiz = document.getElementById('chk-auto-scrape-amauoed-quiz');
+        function handleAutoScrapeToggle(enabled) {
+            autoScrapeAmauoed = enabled;
+            localStorage.setItem('amaes_auto_scrape_amauoed', autoScrapeAmauoed);
+            if (chkAutoScrapeAmauoed) chkAutoScrapeAmauoed.checked = autoScrapeAmauoed;
+            if (chkAutoScrapeAmauoedQuiz) chkAutoScrapeAmauoedQuiz.checked = autoScrapeAmauoed;
+            showToast(`Auto-fetch AMAUOED: ${autoScrapeAmauoed ? 'Enabled' : 'Disabled'}`);
+            setLog(`Auto-fetch AMAUOED when missing: <b>${autoScrapeAmauoed ? 'ON' : 'OFF'}</b>`, autoScrapeAmauoed ? "var(--accent-purple)" : "var(--accent-amber)", autoScrapeAmauoed ? "Discovers and crawls online study guides when missing" : "AMAUOED scraping disabled");
+        }
         if (chkAutoScrapeAmauoed) {
-            chkAutoScrapeAmauoed.onchange = (e) => {
-                autoScrapeAmauoed = e.target.checked;
-                localStorage.setItem('amaes_auto_scrape_amauoed', autoScrapeAmauoed);
-                showToast(`Auto-scrape AMAUOED: ${autoScrapeAmauoed ? 'Enabled' : 'Disabled'}`);
-                setLog(`Auto-scrape AMAUOED when missing: <b>${autoScrapeAmauoed ? 'ON' : 'OFF'}</b>`, autoScrapeAmauoed ? "var(--accent-purple)" : "var(--accent-amber)", autoScrapeAmauoed ? "Discovers and crawls online study guides when missing" : "Scraping disabled");
-            };
+            chkAutoScrapeAmauoed.onchange = (e) => handleAutoScrapeToggle(e.target.checked);
+        }
+        if (chkAutoScrapeAmauoedQuiz) {
+            chkAutoScrapeAmauoedQuiz.onchange = (e) => handleAutoScrapeToggle(e.target.checked);
         }
 
         if (chkAutoDlJson) {
@@ -8101,7 +8291,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                 if (sc && sc !== 'GENERAL' && sc !== 'DEFAULT' && !sessionStorage.getItem(`amaes_cloud_synced_${sc}`)) {
                     sessionStorage.setItem(`amaes_cloud_synced_${sc}`, '1');
                     setLog(`Auto-syncing community database for <b>${sc}</b>...`, "var(--accent-blue)");
-                    syncAnswersFromCloud(sc).then(res => {
+                    syncAnswersFromCloud(sc).then(async (res) => {
                         if (res && res.count > 0) {
                             showToast(`Auto-synced ${res.count} community answers for ${sc}!`);
                             setLog(`Auto-synced <b>${res.count}</b> answers for <b>${sc}</b> from Cloud Hub.`, "var(--accent-green)");
@@ -8110,6 +8300,22 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                             if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
                             if (checkIsQuizPage()) {
                                 highlightQuizAnswers(fresh, false);
+                            }
+                        } else if (autoScrapeAmauoed) {
+                            const link = await autoFindAmauoedLink(sc);
+                            if (link) {
+                                const scraped = await loadAllAmauoedAnswers(link);
+                                if (scraped && scraped.length > 0) {
+                                    mergeAnswersIntoCache(sc, scraped, 'AMAUOED');
+                                    showToast(`Auto-scraped ${scraped.length} answers from AMAUOED for ${sc}!`);
+                                    setLog(`Auto-scraped <b>${scraped.length}</b> answers for <b>${sc}</b> from AMAUOED.`, "var(--accent-green)");
+                                    const fresh = getCachedAnswers(sc);
+                                    const lbl = document.getElementById('fetch-btn-label');
+                                    if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+                                    if (checkIsQuizPage()) {
+                                        highlightQuizAnswers(fresh, false);
+                                    }
+                                }
                             }
                         }
                     }).catch(async (err) => {
@@ -8122,6 +8328,12 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                                     mergeAnswersIntoCache(sc, scraped, 'AMAUOED');
                                     showToast(`Auto-scraped ${scraped.length} answers from AMAUOED for ${sc}!`);
                                     setLog(`Auto-scraped <b>${scraped.length}</b> answers for <b>${sc}</b> from AMAUOED.`, "var(--accent-green)");
+                                    const fresh = getCachedAnswers(sc);
+                                    const lbl = document.getElementById('fetch-btn-label');
+                                    if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+                                    if (checkIsQuizPage()) {
+                                        highlightQuizAnswers(fresh, false);
+                                    }
                                 }
                             }
                         }

@@ -1309,6 +1309,147 @@ test("Button Binding Integrity: createPanel declares all element references with
     assert.ok(script.includes(".amaes-btn:active"), "CSS must include :active scale press effect for tactile feedback");
 });
 
+// --------------------------------------------------
+// 43. AMAUOED Multi-Chip & Distractor Extraction
+// --------------------------------------------------
+test("AMAUOED HTML Parser: extracts multi-chip answers, distractors as wrongAnswers, and choices", () => {
+    // Simulated DOM parser test for parseAmauoedHtml logic
+    function mockParseAmauoedCard(cardData) {
+        const correctList = cardData.chips || [];
+        const allChoices = cardData.choices || [];
+        const wrongAnswers = allChoices.filter(c => !correctList.some(ans => normalizeChoice(ans) === normalizeChoice(c)));
+
+        const ansRaw = correctList.join(', ');
+        const ansNorm = normalizeChoice(ansRaw);
+        const entry = {
+            qRaw: cardData.question,
+            qNorm: normalizeChoice(cardData.question),
+            ansRaw,
+            ansNorm,
+            source: 'amauoed'
+        };
+        if (correctList.length > 1) {
+            entry.answers = correctList;
+        }
+        if (wrongAnswers.length > 0) {
+            entry.wrongAnswers = wrongAnswers.map(w => ({ text: w, norm: normalizeChoice(w) }));
+        }
+        if (allChoices.length > 0) {
+            entry.choices = allChoices;
+        }
+        return entry;
+    }
+
+    const parsed = mockParseAmauoedCard({
+        question: "Which of the following are valid network topologies?",
+        choices: ["Star", "Mesh", "Banana", "Ring"],
+        chips: ["Star", "Mesh", "Ring"]
+    });
+
+    assert.strictEqual(parsed.ansRaw, "Star, Mesh, Ring");
+    assert.deepStrictEqual(parsed.answers, ["Star", "Mesh", "Ring"], "Must contain all 3 correct chips in answers array");
+    assert.strictEqual(parsed.wrongAnswers.length, 1);
+    assert.strictEqual(parsed.wrongAnswers[0].text, "Banana", "Distractor must be recorded in wrongAnswers");
+    assert.strictEqual(parsed.choices.length, 4, "All 4 choices must be captured");
+});
+
+// --------------------------------------------------
+// 44. AMAUOED 5-Tier Link Discovery Matcher
+// --------------------------------------------------
+test("AMAUOED 5-Tier Matcher: matches exact code, dept+num, dept alias, unique num, and title keywords", () => {
+    const catalog = [
+        { cleanCode: 'CS6202', rawCode: 'CS-6202', dept: 'CS', num: '6202', title: 'Algorithms and Complexity', url: 'https://amauoed.com/courses/cs/algorithms-and-complexity-6202-cs' },
+        { cleanCode: 'ITE6200', rawCode: 'ITE-6200', dept: 'ITE', num: '6200', title: 'Data Structures and Algorithms', url: 'https://amauoed.com/courses/ite/data-structures-and-algorithms-6200-ite' },
+        { cleanCode: 'MATH6100', rawCode: 'MATH-6100', dept: 'MATH', num: '6100', title: 'Calculus 1', url: 'https://amauoed.com/courses/math/calculus-1-6100-math' },
+        { cleanCode: 'GE6107', rawCode: 'GE-6107', dept: 'GE', num: '6107', title: 'Ethics', url: 'https://amauoed.com/courses/ge/ethics-6107-ge' }
+    ];
+
+    function matchInCatalog(code, courseTitle, courses) {
+        const cleanCode = code.toUpperCase().replace(/[^A-Z0-9]/g, '').trim();
+        const codeNum = cleanCode.replace(/\D+/g, '');
+        const codeDept = cleanCode.replace(/\d+/g, '').toUpperCase();
+
+        // Tier 1: Exact code
+        const exact = courses.find(c => c.cleanCode === cleanCode || c.rawCode === cleanCode);
+        if (exact) return exact.url;
+
+        // Tier 2: Dept + Number
+        if (codeDept && codeNum) {
+            const deptNum = courses.find(c => c.dept === codeDept && c.num === codeNum);
+            if (deptNum) return deptNum.url;
+        }
+
+        // Tier 3: Dept alias (IT -> ITE)
+        const ALIAS_MAP = {
+            'IT': ['ITE', 'IT'],
+            'ITE': ['IT', 'ITE'],
+            'CS': ['COMP', 'CS'],
+            'MATH': ['MTH', 'MATH']
+        };
+        const aliases = ALIAS_MAP[codeDept] || [codeDept];
+        if (codeNum) {
+            const aliasMatch = courses.find(c => aliases.includes(c.dept) && c.num === codeNum);
+            if (aliasMatch) return aliasMatch.url;
+        }
+
+        // Tier 4: Unique number match
+        if (codeNum && codeNum.length >= 3) {
+            const numMatches = courses.filter(c => c.num === codeNum);
+            if (numMatches.length === 1) return numMatches[0].url;
+        }
+
+        // Tier 5: Title keywords
+        if (courseTitle) {
+            const queryWords = courseTitle.toLowerCase().replace(/[^a-z0-9\s]/g, '').split(/\s+/).filter(w => w.length > 3);
+            if (queryWords.length >= 2) {
+                const best = courses.find(c => queryWords.filter(w => c.title.toLowerCase().includes(w)).length >= 2);
+                if (best) return best.url;
+            }
+        }
+
+        return null;
+    }
+
+    // Tier 1: Exact
+    assert.strictEqual(matchInCatalog('CS-6202', '', catalog), 'https://amauoed.com/courses/cs/algorithms-and-complexity-6202-cs');
+    // Tier 2: CS6202 (no hyphen)
+    assert.strictEqual(matchInCatalog('CS6202', '', catalog), 'https://amauoed.com/courses/cs/algorithms-and-complexity-6202-cs');
+    // Tier 3: IT-6200 alias -> ITE-6200
+    assert.strictEqual(matchInCatalog('IT6200', '', catalog), 'https://amauoed.com/courses/ite/data-structures-and-algorithms-6200-ite');
+    // Tier 4: Unique 4-digit number 6107
+    assert.strictEqual(matchInCatalog('SUBJ6107', '', catalog), 'https://amauoed.com/courses/ge/ethics-6107-ge');
+    // Tier 5: Title keyword overlap
+    assert.strictEqual(matchInCatalog('UNKNOWN', 'Algorithms and Complexity Advanced Analysis', catalog), 'https://amauoed.com/courses/cs/algorithms-and-complexity-6202-cs');
+});
+
+// --------------------------------------------------
+// 45. Solver Variable Integrity: No TypeError on Reassignment
+// --------------------------------------------------
+test("Solver Variable Integrity: cached variable is declared with let in runAutoQuizSolver", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // Scope check to runAutoQuizSolver function
+    const solverStart = script.indexOf('async function runAutoQuizSolver');
+    const solverSection = script.substring(solverStart, solverStart + 1500);
+
+    assert.ok(solverSection.includes("let cached = getCachedAnswers(subCode);"), "cached in runAutoQuizSolver must be declared with 'let' to allow reassignment");
+    assert.ok(!solverSection.includes("const cached = getCachedAnswers(subCode);"), "Must NOT use const for cached in runAutoQuizSolver");
+});
+
+// --------------------------------------------------
+// 46. Auto-Fetch AMAUOED Quiz Toggle & Sync
+// --------------------------------------------------
+test("Auto-Fetch AMAUOED Quiz Toggle: exists in Quiz & DB tabs and stays synchronized", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    assert.ok(script.includes('id="chk-auto-scrape-amauoed-quiz"'), "chk-auto-scrape-amauoed-quiz must be present in Quiz tab markup");
+    assert.ok(script.includes('id="chk-auto-scrape-amauoed"'), "chk-auto-scrape-amauoed must be present in DB tab markup");
+    assert.ok(script.includes('function handleAutoScrapeToggle('), "Must use unified handleAutoScrapeToggle to synchronize both checkboxes");
+    assert.ok(script.includes('autoFetchCloudAnswersIfMissing(subCode)'), "Quiz attempt page load and solver must call autoFetchCloudAnswersIfMissing");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
