@@ -40,7 +40,9 @@ function normalizeChoice(str) {
     if (!str) return '';
     let text = str.toLowerCase().trim();
     text = text.replace(/[\u2212\u2013\u2014]/g, '-');
-    text = text.replace(/^select one:?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
+    text = text.replace(/[✓✔✗✘✕✖]/g, '');
+    text = text.replace(/\s*[\(\[]?(?:correct|incorrect)[\)\]]?\s*$/i, '');
+    text = text.replace(/^select (?:one or more choices?|one or more|all that apply|one):?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
     text = text.replace(/\s+/g, ' ');
     text = text.replace(/[.:?!;,]+$/, '');
     text = unscriptDigits(text);
@@ -2144,6 +2146,110 @@ test("Moodle Ground Truth Override: Confirmed checkmark or 1.00 score purges con
     assert.ok(script.includes("isConfirmedByMoodle"), "Userscript must define isConfirmedByMoodle ground-truth check");
     assert.ok(script.includes("!isVerifiedChoice"), "Userscript must guard against eliminating verified choices");
     assert.ok(script.includes("hasDomCheckmark"), "Userscript must check DOM checkmarks when evaluating choices");
+});
+
+// --------------------------------------------------
+// 64. Decimal and Multi-Answer Partial Scoring
+// --------------------------------------------------
+test("Decimal & Multi-Answer Partial Scoring: handles decimal marks (3.40, 2.10) and harvests checkmarked choices on partial scores while eliminating crossed choices", () => {
+    function parseGrade(gradeText, classList = []) {
+        let earned = null;
+        let max = null;
+        const match = (gradeText || '').match(/([0-9]+(?:\.[0-9]+)?)\s*out of\s*([0-9]+(?:\.[0-9]+)?)/i);
+        if (match) {
+            earned = parseFloat(match[1]);
+            max = parseFloat(match[2]);
+        }
+
+        const hasCorrectClass = classList.includes('correct');
+        const hasIncorrectClass = classList.includes('incorrect');
+        const hasPartialClass = classList.includes('partiallycorrect');
+
+        const isFullMark = Boolean(
+            (max !== null && max > 0 && Math.abs(earned - max) < 0.001) ||
+            (hasCorrectClass && !hasPartialClass && !hasIncorrectClass)
+        );
+
+        const isZeroMark = Boolean(
+            (earned !== null && earned === 0) ||
+            (hasIncorrectClass && !hasPartialClass && !hasCorrectClass)
+        );
+
+        const isPartialMark = Boolean(
+            hasPartialClass ||
+            (earned !== null && max !== null && earned > 0 && earned < max && Math.abs(earned - max) >= 0.001)
+        );
+
+        return { earned, max, isFullMark, isZeroMark, isPartialMark };
+    }
+
+    // Decimal score tests
+    const g1 = parseGrade("Mark 3.40 out of 3.40");
+    assert.strictEqual(g1.isFullMark, true, "3.40 / 3.40 must be full mark");
+    assert.strictEqual(g1.isPartialMark, false);
+    assert.strictEqual(g1.isZeroMark, false);
+
+    const g2 = parseGrade("Mark 2.10 out of 3.00");
+    assert.strictEqual(g2.isFullMark, false, "2.10 / 3.00 is not full mark");
+    assert.strictEqual(g2.isPartialMark, true, "2.10 / 3.00 must be partial mark");
+    assert.strictEqual(g2.isZeroMark, false);
+
+    const g3 = parseGrade("Mark 3.40 out of 5.00");
+    assert.strictEqual(g3.isFullMark, false);
+    assert.strictEqual(g3.isPartialMark, true, "3.40 / 5.00 must be partial mark");
+
+    const g4 = parseGrade("Mark 0.00 out of 2.50");
+    assert.strictEqual(g4.isZeroMark, true, "0.00 / 2.50 must be zero mark");
+    assert.strictEqual(g4.isFullMark, false);
+
+    // Multi-answer partial harvesting simulation
+    function harvestChoices(choiceData) {
+        const checkmarked = [];
+        const crossed = [];
+        choiceData.forEach(c => {
+            if (c.hasCheck) checkmarked.push(c.text);
+            if (c.hasCross) crossed.push(c.text);
+        });
+
+        let rightAnswer = '';
+        if (checkmarked.length > 0) {
+            rightAnswer = checkmarked.join(', ');
+        }
+        const wrongAnswers = [...crossed];
+
+        // Safety guard purge
+        const verifiedSet = new Set(checkmarked.map(c => normalizeChoice(c)));
+        for (let i = wrongAnswers.length - 1; i >= 0; i--) {
+            if (verifiedSet.has(normalizeChoice(wrongAnswers[i]))) {
+                wrongAnswers.splice(i, 1);
+            }
+        }
+        return { rightAnswer, wrongAnswers };
+    }
+
+    const testChoices = [
+        { text: "RAM", hasCheck: true, hasCross: false },
+        { text: "ROM", hasCheck: true, hasCross: false },
+        { text: "GPU", hasCheck: false, hasCross: true }
+    ];
+
+    const harvestRes = harvestChoices(testChoices);
+    assert.strictEqual(harvestRes.rightAnswer, "RAM, ROM", "Checkmarked choices must be harvested as verified answers");
+    assert.deepStrictEqual(harvestRes.wrongAnswers, ["GPU"], "Crossed choice must be harvested as wrong answer");
+    assert.ok(!harvestRes.wrongAnswers.includes("RAM"), "Verified choice RAM must never be in wrongAnswers");
+    assert.ok(!harvestRes.wrongAnswers.includes("ROM"), "Verified choice ROM must never be in wrongAnswers");
+
+    // Choice normalization text cleaning check (strips accessibility text like Correct)
+    const rawChoiceWithMoodleA11y = "Address line Correct";
+    assert.strictEqual(normalizeChoice(rawChoiceWithMoodleA11y), "address line", "normalizeChoice must strip trailing Correct feedback word");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("parseMoodleQuestionGrade"), "Userscript must contain parseMoodleQuestionGrade");
+    assert.ok(script.includes("hasChoiceCheckmark"), "Userscript must contain hasChoiceCheckmark helper");
+    assert.ok(script.includes("hasChoiceCross"), "Userscript must contain hasChoiceCross helper");
+    assert.ok(script.includes("isPartialMark"), "Userscript must handle isPartialMark");
 });
 
 console.log("\n==================================================");

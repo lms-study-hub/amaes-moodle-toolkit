@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.4.1
+// @version      1.4.2
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.4.1";
+    const SCRIPT_VERSION = "v1.4.2";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -1160,7 +1160,9 @@
         // Normalize unicode dashes/minus signs to standard hyphen
         text = text.replace(/[\u2212\u2013\u2014]/g, '-');
         // Remove prefix like "select one: ", "select one or more: ", "a. ", "b) " safely without stripping negative signs
-        text = text.replace(/^select (?:one or more choices?|one or more|all that apply|one):?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
+        // Strip unicode checkmarks/crosses and trailing feedback words
+        text = text.replace(/[✓✔✗✘✕✖]/g, '');
+        text = text.replace(/\s*[\(\[]?(?:correct|incorrect)[\)\]]?\s*$/i, '');
         text = text.replace(/\s+/g, ' ');
         text = text.replace(/[.:?!;,]+$/, '');
         text = unscriptDigits(text);
@@ -2884,8 +2886,7 @@
 
             // Inspect DOM for explicit Moodle checkmarks (e.g. on review page)
             choiceRows.forEach(row => {
-                const hasCheck = Boolean(row.querySelector('.fa-check, .feedbackimage[alt="Correct"], img[src*="tick"], img[src*="correct"]') || row.classList.contains('correct'));
-                if (hasCheck) {
+                if (hasChoiceCheckmark(row)) {
                     const label = row.querySelector('label') || row;
                     const txt = normalizeChoice(cleanDOMToAI(label));
                     if (txt) verifiedNorms.add(txt);
@@ -2923,7 +2924,7 @@
 
                 const label = row.querySelector('label') || row;
                 const input = row.querySelector('input[type="radio"], input[type="checkbox"]');
-                const hasDomCheckmark = Boolean(row.querySelector('.fa-check, .feedbackimage[alt="Correct"], img[src*="tick"], img[src*="correct"]') || row.classList.contains('correct'));
+                const hasDomCheckmark = hasChoiceCheckmark(row);
 
                 // Extract clean text without badges
                 const choiceText = normalizeChoice(cleanDOMToAI(label));
@@ -4081,8 +4082,8 @@
         if (!rootNode) return '';
         const clone = rootNode.cloneNode(true);
 
-        // Strip non-content scripts, toolkit buttons & all injected UI badges
-        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-blockage-hud, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn, .amaes-review-status-pill, .amaes-review-outcome-banner').forEach(el => el.remove());
+        // Strip non-content scripts, toolkit buttons, injected UI badges & Moodle feedback icons/accessibility text
+        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-blockage-hud, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn, .amaes-review-status-pill, .amaes-review-outcome-banner, .feedbackimage, .fa-check, .fa-remove, .fa-times, .fa-close, .accesshide, .sr-only').forEach(el => el.remove());
 
         // Convert Superscripts (e.g. 2^3 -> 2³, x^2 -> x², or ^{complex})
         clone.querySelectorAll('sup').forEach(sup => {
@@ -4160,6 +4161,7 @@
 
         // Normalize spaces and clean up
         let text = clone.innerText || clone.textContent || '';
+        text = text.replace(/[✓✔✗✘✕✖]/g, '');
         text = text.replace(/\r\n/g, '\n');
         text = text.split('\n').map(line => line.replace(/[ \t]+/g, ' ').trim()).filter((line, i, arr) => {
             return !(line === '' && arr[i - 1] === '');
@@ -5375,6 +5377,61 @@
         }));
     }
 
+    // Parse Moodle question grade accurately for arbitrary numbers and decimals (e.g. 1.00 out of 1.00, 3.40 out of 5.00, 2.10 out of 3.00, 0.00 out of 2.00)
+    function parseMoodleQuestionGrade(que) {
+        let earned = null;
+        let max = null;
+        const gradeElem = que.querySelector('.info .grade');
+        if (gradeElem) {
+            const match = gradeElem.innerText.match(/([0-9]+(?:\.[0-9]+)?)\s*out of\s*([0-9]+(?:\.[0-9]+)?)/i);
+            if (match) {
+                earned = parseFloat(match[1]);
+                max = parseFloat(match[2]);
+            }
+        }
+
+        const hasCorrectClass = que.classList.contains('correct');
+        const hasIncorrectClass = que.classList.contains('incorrect');
+        const hasPartialClass = que.classList.contains('partiallycorrect');
+
+        const isFullMark = Boolean(
+            (max !== null && max > 0 && Math.abs(earned - max) < 0.001) ||
+            (hasCorrectClass && !hasPartialClass && !hasIncorrectClass)
+        );
+
+        const isZeroMark = Boolean(
+            (earned !== null && earned === 0) ||
+            (hasIncorrectClass && !hasPartialClass && !hasCorrectClass)
+        );
+
+        const isPartialMark = Boolean(
+            hasPartialClass ||
+            (earned !== null && max !== null && earned > 0 && earned < max && Math.abs(earned - max) >= 0.001)
+        );
+
+        return { earned, max, isFullMark, isZeroMark, isPartialMark };
+    }
+
+    function hasChoiceCheckmark(elem) {
+        if (!elem) return false;
+        if (elem.classList && (elem.classList.contains('correct') || elem.classList.contains('text-success'))) return true;
+        if (elem.querySelector('.fa-check, .feedbackimage[alt="Correct"], img[src*="tick"], img[src*="correct"], img[src*="check"], [title="Correct"], [aria-label="Correct"], .text-success')) return true;
+        const text = elem.innerText || '';
+        if (/[✓✔]/.test(text)) return true;
+        const html = elem.innerHTML || '';
+        return /fa-check|alt="Correct"|title="Correct"|correct\.svg/i.test(html);
+    }
+
+    function hasChoiceCross(elem) {
+        if (!elem) return false;
+        if (elem.classList && (elem.classList.contains('incorrect') || elem.classList.contains('text-danger'))) return true;
+        if (elem.querySelector('.fa-remove, .fa-times, .fa-close, .feedbackimage[alt="Incorrect"], img[src*="cross"], img[src*="incorrect"], [title="Incorrect"], [aria-label="Incorrect"], .text-danger')) return true;
+        const text = elem.innerText || '';
+        if (/[✗✘✕✖]/.test(text)) return true;
+        const html = elem.innerHTML || '';
+        return /fa-remove|fa-times|alt="Incorrect"|title="Incorrect"|incorrect\.svg/i.test(html);
+    }
+
     function harvestFromReviewDOM(rootDoc, subCode, quizTitle, courseTitle = '') {
         const queList = rootDoc.querySelectorAll('.que');
         if (queList.length === 0) return { success: false, error: 'No questions found on review page', questions: [] };
@@ -5447,25 +5504,32 @@
                 }
             });
 
-            // Fallback: Check if question scored full mark (1.00 out of 1.00) vs 0 marks
-            const gradeElem = que.querySelector('.info .grade');
-            const gradeStr = gradeElem ? gradeElem.innerText : '';
-            const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Correct"], .outcome .fa-check, .outcome .correct');
-            const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Incorrect"], .outcome .fa-remove, .outcome .fa-times');
+            // Parse decimal and arbitrary score (1.00 out of 1.00, 3.40 out of 5.00, 2.10 out of 3.00, 0.00 out of 2.00)
+            const gradeInfo = parseMoodleQuestionGrade(que);
+            const isFullMark = gradeInfo.isFullMark;
+            const isZeroMark = gradeInfo.isZeroMark;
+            const isPartialMark = gradeInfo.isPartialMark;
 
-            // Check for explicit choice checkmark (fa-check, feedbackimage[alt="Correct"], or .correct class)
-            const checkmarkedElems = que.querySelectorAll('.answer .fa-check, .answer .feedbackimage[alt="Correct"], .answer img[src*="tick"], .answer img[src*="correct"], .answer div.correct, .answer li.correct, .answer tr.correct');
+            // Direct per-choice checkmark and cross detection
+            const choiceRows = que.querySelectorAll('.answer > div.r0, .answer > div.r1, .answer > div, .answer li, .answer tr');
             const checkmarkedTexts = [];
-            checkmarkedElems.forEach(el => {
-                const row = el.closest('div.r0, div.r1, tr, li, .d-flex') || el.closest('label') || el.parentElement;
-                if (row) {
-                    const label = row.querySelector('label') || row;
-                    let text = cleanDOMToAI(label).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
-                    if (text && !checkmarkedTexts.some(c => normalizeChoice(c) === normalizeChoice(text))) {
+            const crossedTexts = [];
+            choiceRows.forEach(row => {
+                const label = row.querySelector('label') || row;
+                let text = cleanDOMToAI(label).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                if (!text) return;
+                if (hasChoiceCheckmark(row)) {
+                    if (!checkmarkedTexts.some(c => normalizeChoice(c) === normalizeChoice(text))) {
                         checkmarkedTexts.push(text);
+                    }
+                } else if (hasChoiceCross(row)) {
+                    if (!crossedTexts.some(c => normalizeChoice(c) === normalizeChoice(text))) {
+                        crossedTexts.push(text);
                     }
                 }
             });
+
+            // If checkmarked choices exist (even on partial scores or multi-answer), harvest them as verified!
             if (checkmarkedTexts.length > 0) {
                 rightAnswer = checkmarkedTexts.join(', ');
                 isVerified = true;
@@ -5473,10 +5537,7 @@
 
             // If user got full mark, the selected/entered choice(s) are verified correct!
             if (!rightAnswer && isFullMark) {
-                if (checkmarkedTexts.length > 0) {
-                    rightAnswer = checkmarkedTexts.join(', ');
-                    isVerified = true;
-                } else if (checkedTexts.length > 0) {
+                if (checkedTexts.length > 0) {
                     rightAnswer = checkedTexts.length === 1 ? checkedTexts[0] : checkedTexts.join(', ');
                     isVerified = true;
                 } else if (filledInputTexts.length > 0) {
@@ -5491,19 +5552,16 @@
                 }
             }
 
-            // Safety guard: Any verified rightAnswer can NEVER be in wrongAnswers!
-            if (rightAnswer) {
-                const rNorm = normalizeChoice(rightAnswer);
-                const rSubNorms = rightAnswer.split(/[,;&\n]+|\s+and\s+/i).map(s => normalizeChoice(s)).filter(Boolean);
-                for (let i = wrongAnswers.length - 1; i >= 0; i--) {
-                    const wNorm = normalizeChoice(wrongAnswers[i]);
-                    if (wNorm === rNorm || rSubNorms.includes(wNorm) || unscriptDigits(wNorm) === unscriptDigits(rNorm)) {
-                        wrongAnswers.splice(i, 1);
-                    }
+            // Confirmed wrong choices:
+            // 1. Explicit red cross choices are always confirmed wrong
+            crossedTexts.forEach(txt => {
+                const norm = normalizeChoice(txt);
+                if (norm && !wrongAnswers.some(w => normalizeChoice(w) === norm)) {
+                    wrongAnswers.push(txt);
                 }
-            }
+            });
 
-            // If question was marked INCORRECT (0 marks): the checked/entered choice(s) are confirmed WRONG!
+            // 2. If question was marked INCORRECT (0 marks): the checked/entered choice(s) are confirmed WRONG!
             if (isZeroMark) {
                 [...checkedTexts, ...filledInputTexts, ...selectedDropdownTexts, ...placedDropTexts].forEach(txt => {
                     const norm = normalizeChoice(txt);
@@ -5513,17 +5571,30 @@
                 });
             }
 
-            // Also check Moodle's per-choice incorrect indicators (e.g. choice has class incorrect or red cross icon)
+            // Also check Moodle's per-choice incorrect indicators on non-standard containers
             const incorrectChoiceElems = que.querySelectorAll('.answer div.incorrect, .answer tr.incorrect, .answer li.incorrect, .answer .fa-remove, .answer .fa-times, .drop.incorrect');
             incorrectChoiceElems.forEach(el => {
                 const row = el.closest('div.r0, div.r1, tr, li') || el;
                 const label = row.querySelector('label') || row;
                 let text = cleanDOMToAI(label).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
                 const norm = normalizeChoice(text);
-                if (norm && !wrongAnswers.some(w => normalizeChoice(w) === norm) && (!rightAnswer || norm !== normalizeChoice(rightAnswer))) {
+                if (norm && !wrongAnswers.some(w => normalizeChoice(w) === norm)) {
                     wrongAnswers.push(text);
                 }
             });
+
+            // Safety guard: Any verified rightAnswer or checkmarked choice can NEVER be in wrongAnswers!
+            const verifiedSet = new Set(checkmarkedTexts.map(c => normalizeChoice(c)));
+            if (rightAnswer) {
+                verifiedSet.add(normalizeChoice(rightAnswer));
+                rightAnswer.split(/[,;&\n]+|\s+and\s+/i).forEach(s => verifiedSet.add(normalizeChoice(s)));
+            }
+            for (let i = wrongAnswers.length - 1; i >= 0; i--) {
+                const wNorm = normalizeChoice(wrongAnswers[i]);
+                if (verifiedSet.has(wNorm) || verifiedSet.has(unscriptDigits(wNorm))) {
+                    wrongAnswers.splice(i, 1);
+                }
+            }
 
             // 3. Real-time Deduction by Elimination on Review screen:
             // If answer is not yet known, but choices are available (e.g. True/False where 1 is wrong, or 4-choice where 3 are wrong)
@@ -6023,30 +6094,34 @@
                 harvestedData.questions.find(q => q.qNorm === qNorm || (qData.qText && qData.qText.includes(q.qRaw))) : null;
             const dbEntry = cachedDb.find(q => q.qNorm === qNorm || (qData.qText && qData.qText.includes(q.qRaw)));
 
-            const gradeElem = que.querySelector('.info .grade');
-            const gradeStr = gradeElem ? gradeElem.innerText : '';
-            const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Correct"], .outcome .fa-check, .outcome .correct');
-            const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Incorrect"], .outcome .fa-remove, .outcome .fa-times');
+            const gradeInfo = parseMoodleQuestionGrade(que);
+            const isFullMark = gradeInfo.isFullMark;
+            const isZeroMark = gradeInfo.isZeroMark;
+            const isPartialMark = gradeInfo.isPartialMark;
 
             const rightElem = que.querySelector('.rightanswer, .outcome .rightanswer');
             const hasExplicitRightElem = Boolean(rightElem && rightElem.innerText.trim());
 
             let ansText = (harvestedItem && harvestedItem.ansRaw) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)) || '';
 
-            // Direct checkmark extraction from live DOM (Moodle review ground truth!)
-            const checkmarkedElem = que.querySelector('.answer .fa-check, .answer .feedbackimage[alt="Correct"], .answer img[src*="tick"], .answer img[src*="correct"], .answer div.correct, .answer li.correct, .answer tr.correct');
-            if (checkmarkedElem) {
-                const row = checkmarkedElem.closest('div.r0, div.r1, tr, li, .d-flex') || checkmarkedElem.closest('label') || checkmarkedElem.parentElement;
-                if (row) {
+            // Check choice rows directly for checkmarks (Moodle review ground truth!)
+            const choiceRows = que.querySelectorAll('.answer > div.r0, .answer > div.r1, .answer > div, .answer li, .answer tr');
+            const checkmarkedTexts = [];
+            choiceRows.forEach(row => {
+                if (hasChoiceCheckmark(row)) {
                     const label = row.querySelector('label') || row;
                     const extracted = cleanDOMToAI(label).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
-                    if (extracted) {
-                        ansText = extracted;
+                    if (extracted && !checkmarkedTexts.some(c => normalizeChoice(c) === normalizeChoice(extracted))) {
+                        checkmarkedTexts.push(extracted);
                     }
                 }
+            });
+
+            if (checkmarkedTexts.length > 0) {
+                ansText = checkmarkedTexts.join(', ');
             }
 
-            // If question scored full marks (1.00 out of 1.00) but ansText wasn't in cache, extract directly from live DOM!
+            // If question scored full marks but ansText wasn't in cache, extract directly from live DOM!
             if (!ansText && isFullMark) {
                 const textInput = que.querySelector('input[type="text"], textarea, .form-control');
                 if (textInput && (textInput.value || textInput.getAttribute('value'))) {
@@ -6069,23 +6144,27 @@
             const wrongList = (harvestedItem && harvestedItem.wrongAnswers) || (dbEntry && dbEntry.wrongAnswers) || [];
             const wrongNorms = wrongList.map(w => typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || '')));
             const ansNorm = normalizeChoice(ansText);
-            const isConfirmedByMoodle = Boolean(isFullMark || hasExplicitRightElem || checkmarkedElem);
+            const isConfirmedByMoodle = Boolean(isFullMark || hasExplicitRightElem || checkmarkedTexts.length > 0);
 
             let isDebunked = false;
             if (isConfirmedByMoodle && ansNorm) {
                 isDebunked = false;
                 // Moodle's grade / checkmark is absolute supreme truth!
                 // Purge any contradictory wrongAnswer distractor from wrongList and cache!
+                const verifiedNormsList = checkmarkedTexts.map(c => normalizeChoice(c));
+                verifiedNormsList.push(ansNorm);
+                ansText.split(/[,;&\n]+|\s+and\s+/i).forEach(s => verifiedNormsList.push(normalizeChoice(s)));
+
                 for (let i = wrongList.length - 1; i >= 0; i--) {
                     const wNorm = typeof wrongList[i] === 'string' ? normalizeChoice(wrongList[i]) : (wrongList[i].norm || normalizeChoice(wrongList[i].text || ''));
-                    if (wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm)) {
+                    if (verifiedNormsList.some(v => v === wNorm || unscriptDigits(v) === unscriptDigits(wNorm))) {
                         wrongList.splice(i, 1);
                     }
                 }
                 if (harvestedItem && Array.isArray(harvestedItem.wrongAnswers)) {
                     harvestedItem.wrongAnswers = harvestedItem.wrongAnswers.filter(w => {
                         const wNorm = typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || ''));
-                        return wNorm !== ansNorm && unscriptDigits(wNorm) !== unscriptDigits(ansNorm);
+                        return !verifiedNormsList.some(v => v === wNorm || unscriptDigits(v) === unscriptDigits(wNorm));
                     });
                     harvestedItem.ansRaw = ansText;
                     harvestedItem.ansNorm = ansNorm;
@@ -6095,7 +6174,7 @@
                     if (Array.isArray(dbEntry.wrongAnswers)) {
                         dbEntry.wrongAnswers = dbEntry.wrongAnswers.filter(w => {
                             const wNorm = typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || ''));
-                            return wNorm !== ansNorm && unscriptDigits(wNorm) !== unscriptDigits(ansNorm);
+                            return !verifiedNormsList.some(v => v === wNorm || unscriptDigits(v) === unscriptDigits(wNorm));
                         });
                     }
                     dbEntry.ansRaw = ansText;
@@ -6205,14 +6284,14 @@
                     banner.innerHTML = `
                         <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
                             ${isCloudSharingOn ? (ICONS.cloudUpload || ICONS.cloud) : ICONS.database}
-                            <span><b>${isDeduced ? 'Deduced' : 'Verified'} Answer:</b> &ldquo;${escapeHtml(ansText)}&rdquo;</span>
+                            <span><b>${isDeduced ? 'Deduced' : 'Verified'} Answer${checkmarkedTexts.length > 1 ? 's' : ''}:</b> &ldquo;${escapeHtml(ansText)}&rdquo;${(isPartialMark && gradeInfo.earned !== null && gradeInfo.max !== null) ? ` (Partial: ${gradeInfo.earned}/${gradeInfo.max})` : ''}</span>
                         </div>
                         <span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; background: ${isCloudSharingOn ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.25)'};">
                             ${isCloudSharingOn ? 'UPLOADED TO DB' : 'SAVED LOCALLY'}
                         </span>
                     `;
                 }
-            } else if (isZeroMark && !isFullMark) {
+            } else if (isZeroMark && !isFullMark && checkmarkedTexts.length === 0) {
                 pill.style.cssText = `
                     display: inline-flex;
                     align-items: center;
