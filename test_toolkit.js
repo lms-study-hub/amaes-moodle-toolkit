@@ -1295,6 +1295,20 @@ test("Multi-Answer Harvesting & Cache: splits rightAnswer into answers array and
     assert.deepStrictEqual(existingEntry.answers, ["Static RAM", "Dynamic RAM", "Cache SRAM"], "Must merge and deduplicate multiple answer choices");
 });
 
+// --------------------------------------------------
+// 42. Button Binding & ReferenceError Prevention
+// --------------------------------------------------
+test("Button Binding Integrity: createPanel declares all element references without ReferenceErrors", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // Verify btnCopyAllQ is declared
+    assert.ok(script.includes("const btnCopyAllQ = document.getElementById('btn-copy-all-q');"), "btnCopyAllQ must be declared to prevent ReferenceError in createPanel");
+    assert.ok(script.includes("btnCloudSync.classList.add('amaes-pulse');"), "btnCloudSync must trigger pulse animation");
+    assert.ok(script.includes("btnHarvestGradesDb.classList.add('amaes-pulse');"), "btnHarvestGradesDb must trigger pulse animation");
+    assert.ok(script.includes(".amaes-btn:active"), "CSS must include :active scale press effect for tactile feedback");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

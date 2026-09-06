@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.9
+// @version      1.3.0
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.9";
+    const SCRIPT_VERSION = "v1.3.0";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -6648,10 +6648,14 @@
                     font-size: 11px;
                     font-weight: 500;
                     cursor: pointer;
-                    transition: filter 0.15s ease, background 0.15s ease;
+                    transition: filter 0.15s ease, background 0.15s ease, transform 0.1s ease;
                     text-align: left;
                     width: 100%;
                     box-sizing: border-box;
+                }
+                .amaes-btn:active {
+                    transform: scale(0.97);
+                    filter: brightness(0.92);
                 }
 
                 .amaes-btn-preview {
@@ -6807,6 +6811,7 @@
 
         const btnMasterAutoQuiz = document.getElementById('btn-master-auto-quiz');
         const btnCopyCurrQ = document.getElementById('btn-copy-curr-q');
+        const btnCopyAllQ = document.getElementById('btn-copy-all-q');
         const chkAutoPick = document.getElementById('chk-auto-pick');
         const chkAutoNext = document.getElementById('chk-auto-next');
         const chkAiPromptHint = document.getElementById('chk-ai-prompt-hint');
@@ -7412,13 +7417,18 @@
 
         if (btnCloudSync) {
             btnCloudSync.onclick = async () => {
+                btnCloudSync.disabled = true;
+                btnCloudSync.classList.add('amaes-pulse');
+                btnCloudSync.innerHTML = `${ICONS.cloud} <span>Connecting...</span>`;
+                showToast("Connecting to Cloud Database...", 2000);
+                setLog("Starting Cloud Sync...", "var(--accent-blue)", "Connecting to Community Cloud");
+
                 let targetCode = subCode;
                 const dashCourses = detectDashboardCourses();
 
                 // Dashboard batch sync if no specific course is selected
                 if ((!targetCode || targetCode === 'DEFAULT' || targetCode === 'GENERAL') && dashCourses.length > 0) {
-                    btnCloudSync.disabled = true;
-                    btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing Courses...</span>`;
+                    btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing ${dashCourses.length} Courses...</span>`;
                     showToast(`Syncing community & AMAUOED databases for ${dashCourses.length} courses...`, 3000);
                     setLog(`Syncing Cloud & AMAUOED databases for <b>${dashCourses.length} courses</b>...`, "var(--accent-blue)", "Connecting to Community Cloud and amauoed.com");
 
@@ -7460,6 +7470,7 @@
 
                     showToast(`Cloud Sync Complete! Loaded ${totalSynced} answers across ${dashCourses.length} courses.`, 4000);
                     setLog(`Cloud Sync Complete! Loaded <b>${totalSynced}</b> answers across ${dashCourses.length} courses.`, "var(--accent-green)", "All courses indexed in local database");
+                    btnCloudSync.classList.remove('amaes-pulse');
                     btnCloudSync.innerHTML = `${ICONS.check} <span>Synced ${totalSynced} Qs!</span>`;
                     injectDashboardCourseBadges();
                     setTimeout(() => {
@@ -7470,6 +7481,9 @@
                 }
 
                 if (!targetCode || targetCode === 'DEFAULT' || targetCode === 'GENERAL') {
+                    btnCloudSync.classList.remove('amaes-pulse');
+                    btnCloudSync.disabled = false;
+                    btnCloudSync.innerHTML = `${ICONS.cloudDownload} <span>Cloud Sync</span>`;
                     const entered = prompt("Enter Subject Code to sync from Cloud (e.g. CS6301, ITE6301):", (detectedCodes && detectedCodes[0]) || "");
                     if (!entered || !entered.trim()) {
                         setLog("Cloud sync cancelled (no subject code specified).", "var(--accent-amber)", "Select a subject code to sync");
@@ -7478,9 +7492,10 @@
                     }
                     targetCode = entered.trim().toUpperCase();
                     subCode = targetCode;
+                    btnCloudSync.disabled = true;
+                    btnCloudSync.classList.add('amaes-pulse');
                 }
 
-                btnCloudSync.disabled = true;
                 btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing ${targetCode}...</span>`;
                 showToast(`Connecting to Cloud Database for ${targetCode}...`, 2500);
                 setLog(`Connecting to community cloud database for <b>${targetCode}</b>...`, "var(--accent-blue)", `Checking GitHub repository for ${targetCode}`);
@@ -7497,6 +7512,7 @@
                         const finalDb = getCachedAnswers(targetCode) || [];
                         showToast(`Cloud Sync Success! (${res.count} community answers loaded)`);
                         setLog(`Synced <b>${res.count}</b> answers for <b>${targetCode}</b>! (Total: <b>${finalDb.length}</b>)`, "var(--accent-green)", "Verified database cached and active");
+                        btnCloudSync.classList.remove('amaes-pulse');
                         btnCloudSync.innerHTML = `${ICONS.check} <span>Synced ${res.count} Qs!</span>`;
 
                         if (fetchBtnLabel) {
@@ -7524,6 +7540,7 @@
                                 const finalDb = getCachedAnswers(targetCode) || [];
                                 showToast(`AMAUOED Fallback: Loaded ${scraped.length} questions for ${targetCode}!`, 4000);
                                 setLog(`Scraped <b>${scraped.length}</b> questions from AMAUOED for <b>${targetCode}</b>!`, "var(--accent-green)", "Cached in local database");
+                                btnCloudSync.classList.remove('amaes-pulse');
                                 btnCloudSync.innerHTML = `${ICONS.check} <span>Scraped ${scraped.length} Qs!</span>`;
                                 if (fetchBtnLabel) fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
                                 updateTermCoverageUI(targetCode);
@@ -7531,11 +7548,13 @@
                             } else {
                                 showToast(`No questions found on AMAUOED for ${targetCode}. Will harvest when you take quizzes!`, 4000);
                                 setLog(`No questions found for <b>${targetCode}</b> on AMAUOED.`, "var(--accent-amber)", "Answers will auto-harvest as you complete quizzes");
+                                btnCloudSync.classList.remove('amaes-pulse');
                                 btnCloudSync.innerHTML = `<span>No Answers Yet</span>`;
                             }
                         } else {
                             showToast(`Course ${targetCode} is not in Cloud Hub yet. It will auto-harvest as you quiz!`, 4000);
                             setLog(`No answers found on Cloud or AMAUOED for <b>${targetCode}</b>.`, "var(--accent-amber)", "Answers will auto-harvest from quiz attempts and reviews");
+                            btnCloudSync.classList.remove('amaes-pulse');
                             btnCloudSync.innerHTML = `<span>No Answers Yet</span>`;
                         }
                     }
@@ -7545,6 +7564,7 @@
                 } finally {
                     setTimeout(() => {
                         btnCloudSync.disabled = false;
+                        btnCloudSync.classList.remove('amaes-pulse');
                         btnCloudSync.innerHTML = `${ICONS.cloudDownload} <span>Cloud Sync</span>`;
                     }, 3500);
                 }
@@ -7555,16 +7575,20 @@
         if (btnHarvestGradesDb) {
             btnHarvestGradesDb.onclick = () => {
                 btnHarvestGradesDb.disabled = true;
+                btnHarvestGradesDb.classList.add('amaes-pulse');
                 btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
                 showToast("Scanning completed quizzes for verified answers...", 2500);
                 setLog("Starting quiz harvest from Grade Reports...", "var(--accent-blue)", "Scanning completed attempts for verified answers");
                 executeGradesHarvester((curr, total, name) => {
                     btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
                 }).then(res => {
+                    btnHarvestGradesDb.classList.remove('amaes-pulse');
                     if (res && res.success && res.count > 0) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
                     } else if (res && res.inProgress) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>In Progress</span>`;
+                        showToast("Auto-harvester is currently scanning past quizzes in background. Please wait...", 3000);
+                        setLog("Harvester is <b>actively scanning</b> enrolled courses in background...", "var(--accent-blue)", "Scanning grade items for completed quizzes");
                     } else if (res && res.success && res.count === 0) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>All Up to Date</span>`;
                         showToast("Grade report scan complete. All completed quizzes are already in database!", 3500);
@@ -7574,6 +7598,7 @@
                     }
                     setTimeout(() => {
                         btnHarvestGradesDb.disabled = false;
+                        btnHarvestGradesDb.classList.remove('amaes-pulse');
                         btnHarvestGradesDb.innerHTML = `${ICONS.download} <span>Harvest Quizzes</span>`;
                     }, 4000);
                 });
