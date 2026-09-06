@@ -4834,9 +4834,6 @@
             </div>
 
             <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                <button id="btn-banner-contribute-hub" class="amaes-banner-btn" style="background: linear-gradient(135deg, #10b981, #047857); color: #ffffff; border: none; border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap;" title="1-Click zero-token submission to community GitHub repository with automated anti-sabotage merge">
-                    ${ICONS.upload} <span>Share to Community Hub</span>
-                </button>
                 <button id="btn-banner-export-json" class="amaes-banner-btn amaes-banner-btn-secondary" style="background: rgba(255,255,255,0.08); color: #f1f5f9; border: 1px solid rgba(255,255,255,0.2); border-radius: 6px; padding: 0 12px; height: 28px; font-size: 11px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; white-space: nowrap; width: auto;" title="Download JSON file for classmates or local auto-sync">
                     ${ICONS.download} <span>Download JSON</span>
                 </button>
@@ -5400,9 +5397,6 @@
                                 <button id="btn-copy-install-guide" class="amaes-btn amaes-btn-outline" style="font-size: 10px; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
                                     ${ICONS.copy} <span>Copy Classmate Guide to Clipboard</span>
                                 </button>
-                                <button id="btn-welcome-share-hub" class="amaes-btn amaes-btn-green" style="font-size: 10px; padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;">
-                                    ${ICONS.upload} <span>Share Database to Hub</span>
-                                </button>
                             </div>
                         </div>
                     </details>
@@ -5811,16 +5805,13 @@
                         </div>
                     </div>
 
-                    <!-- Primary 1-Click Actions: Pull, Harvest & Share -->
-                    <div style="display: flex; gap: 5px;">
-                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 6px; font-size: 10.5px; font-weight: 700;" title="Pull verified answers directly from free GitHub community database">
+                    <!-- Primary 1-Click Actions: Pull & Harvest -->
+                    <div style="display: flex; gap: 6px;">
+                        <button id="btn-cloud-sync" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 7px; font-size: 11px; font-weight: 700;" title="Pull verified answers directly from free GitHub community database">
                             ${ICONS.cloudDownload} <span>Cloud Sync</span>
                         </button>
-                        <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="flex: 1.15; justify-content: center; padding: 6px; font-size: 10.5px; font-weight: 700;" title="Scan course Grade Report to harvest and sync all completed past quizzes">
+                        <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="flex: 1; justify-content: center; padding: 7px; font-size: 11px; font-weight: 700;" title="Scan course Grade Report to harvest and sync all completed past quizzes">
                             ${ICONS.download} <span>Harvest Quizzes</span>
-                        </button>
-                        <button id="btn-contribute-db" class="amaes-btn amaes-btn-outline" style="padding: 6px 8px; justify-content: center; font-size: 10px; font-weight: 700;" title="Share collected verified answers to the community GitHub hub">
-                            ${ICONS.upload} <span>Share</span>
                         </button>
                     </div>
 
