@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.4
+// @version      1.3.5
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.4";
+    const SCRIPT_VERSION = "v1.3.5";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2790,7 +2790,7 @@
 
             // Clone qtext and remove input, select, textarea, drop zones, and badges so inline blanks match AMAUOED entries cleanly
             const qClone = qtextElem.cloneNode(true);
-            qClone.querySelectorAll('input, select, textarea, .drop, .draghome, .drags, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-verified-badge, .amaes-probability-hint').forEach(el => el.remove());
+            qClone.querySelectorAll('input, select, textarea, .drop, .draghome, .drags, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-verified-badge, .amaes-probability-hint, .amaes-review-status-pill, .amaes-review-outcome-banner').forEach(el => el.remove());
             const moodleQRaw = qClone.innerText.trim();
             const moodleQNorm = normalizeText(moodleQRaw);
 
@@ -3971,7 +3971,7 @@
         const clone = rootNode.cloneNode(true);
 
         // Strip non-content scripts, toolkit buttons & all injected UI badges
-        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-blockage-hud, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn').forEach(el => el.remove());
+        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-blockage-hud, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn, .amaes-review-status-pill, .amaes-review-outcome-banner').forEach(el => el.remove());
 
         // Convert Superscripts (e.g. 2^3 -> 2³, x^2 -> x², or ^{complex})
         clone.querySelectorAll('sup').forEach(sup => {
@@ -4566,6 +4566,9 @@
 
         injectQuestionCopyButtons();
         handleQuizReviewPageLoad();
+        if (checkIsReviewPage()) {
+            injectReviewQuestionMarkers();
+        }
 
         if (checkIsQuizAttemptPage()) {
             injectQuizFloatingHUD();
@@ -4620,6 +4623,9 @@
             observerDebounceTimer = setTimeout(() => {
                 injectQuestionCopyButtons();
                 handleQuizReviewPageLoad();
+                if (checkIsReviewPage()) {
+                    injectReviewQuestionMarkers();
+                }
                 if (checkIsQuizAttemptPage()) {
                     setupQuizAnswerListeners();
                 }
@@ -5238,13 +5244,7 @@
                 }
             }
 
-            // 2. Fallback: Check if question scored full mark (1.00 out of 1.00) vs 0 marks
-            const gradeElem = que.querySelector('.info .grade');
-            const gradeStr = gradeElem ? gradeElem.innerText : '';
-            const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr);
-            const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr);
-
-            // Checked radio or checkbox in this question
+            // 2. Extract choices from all input formats (Radio, Checkbox, Text input, Dropdown, Drag & Drop)
             const checkedInputs = que.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked');
             const checkedTexts = [];
             checkedInputs.forEach(inp => {
@@ -5254,21 +5254,61 @@
                 if (text) checkedTexts.push(text);
             });
 
-            // If user got full mark, the selected choice(s) are verified correct!
-            if (!rightAnswer && isFullMark && checkedTexts.length > 0) {
-                rightAnswer = checkedTexts.length === 1 ? checkedTexts[0] : checkedTexts.join(', ');
-                isVerified = true;
-            } else if (!rightAnswer && isFullMark) {
-                const textInput = que.querySelector('input[type="text"].form-control, input.form-control');
-                if (textInput && textInput.value) {
-                    rightAnswer = textInput.value.trim();
+            // Text inputs & textareas (e.g. cloze sentences, short answers)
+            const textInputs = que.querySelectorAll('input[type="text"], textarea');
+            const filledInputTexts = [];
+            textInputs.forEach(inp => {
+                const val = inp.value ? inp.value.trim() : '';
+                if (val) filledInputTexts.push(val);
+            });
+
+            // Dropdowns (select elements in matching tables & gapselects)
+            const selects = que.querySelectorAll('select');
+            const selectedDropdownTexts = [];
+            selects.forEach(sel => {
+                const opt = sel.options[sel.selectedIndex];
+                const optText = (opt && opt.value) ? (opt.text || opt.innerText).trim() : '';
+                if (optText && optText !== 'Choose...') {
+                    selectedDropdownTexts.push(optText);
+                }
+            });
+
+            // Drag and drop words into text (ddwtos, ddimageortext, ddmarker)
+            const dropZones = que.querySelectorAll('.drop, .dropzone, span.droptarget');
+            const placedDropTexts = [];
+            dropZones.forEach(dz => {
+                const placedText = cleanDOMToAI(dz).replace(/^\[Blank\s*\d+[^\]]*\]/i, '').trim();
+                if (placedText && !placedText.startsWith('[Blank')) {
+                    placedDropTexts.push(placedText);
+                }
+            });
+
+            // Fallback: Check if question scored full mark (1.00 out of 1.00) vs 0 marks
+            const gradeElem = que.querySelector('.info .grade');
+            const gradeStr = gradeElem ? gradeElem.innerText : '';
+            const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Correct"], .outcome .fa-check, .outcome .correct');
+            const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Incorrect"], .outcome .fa-remove, .outcome .fa-times');
+
+            // If user got full mark, the selected/entered choice(s) are verified correct!
+            if (!rightAnswer && isFullMark) {
+                if (checkedTexts.length > 0) {
+                    rightAnswer = checkedTexts.length === 1 ? checkedTexts[0] : checkedTexts.join(', ');
+                    isVerified = true;
+                } else if (filledInputTexts.length > 0) {
+                    rightAnswer = filledInputTexts.length === 1 ? filledInputTexts[0] : filledInputTexts.join(', ');
+                    isVerified = true;
+                } else if (selectedDropdownTexts.length > 0) {
+                    rightAnswer = selectedDropdownTexts.length === 1 ? selectedDropdownTexts[0] : selectedDropdownTexts.join(', ');
+                    isVerified = true;
+                } else if (placedDropTexts.length > 0) {
+                    rightAnswer = placedDropTexts.length === 1 ? placedDropTexts[0] : placedDropTexts.join(', ');
                     isVerified = true;
                 }
             }
 
-            // If question was marked INCORRECT (0 marks): the checked choice is confirmed WRONG!
-            if (isZeroMark && checkedTexts.length > 0) {
-                checkedTexts.forEach(txt => {
+            // If question was marked INCORRECT (0 marks): the checked/entered choice(s) are confirmed WRONG!
+            if (isZeroMark) {
+                [...checkedTexts, ...filledInputTexts, ...selectedDropdownTexts, ...placedDropTexts].forEach(txt => {
                     const norm = normalizeChoice(txt);
                     if (norm && !wrongAnswers.some(w => normalizeChoice(w) === norm)) {
                         wrongAnswers.push(txt);
@@ -5277,7 +5317,7 @@
             }
 
             // Also check Moodle's per-choice incorrect indicators (e.g. choice has class incorrect or red cross icon)
-            const incorrectChoiceElems = que.querySelectorAll('.answer div.incorrect, .answer tr.incorrect, .answer li.incorrect, .answer .fa-remove, .answer .fa-times');
+            const incorrectChoiceElems = que.querySelectorAll('.answer div.incorrect, .answer tr.incorrect, .answer li.incorrect, .answer .fa-remove, .answer .fa-times, .drop.incorrect');
             incorrectChoiceElems.forEach(el => {
                 const row = el.closest('div.r0, div.r1, tr, li') || el;
                 const label = row.querySelector('label') || row;
@@ -5287,6 +5327,21 @@
                     wrongAnswers.push(text);
                 }
             });
+
+            // 3. Real-time Deduction by Elimination on Review screen:
+            // If answer is not yet known, but choices are available (e.g. True/False where 1 is wrong, or 4-choice where 3 are wrong)
+            let isDeduced = false;
+            if (!rightAnswer && wrongAnswers.length > 0 && Array.isArray(qData.choices) && qData.choices.length > 1) {
+                const uneliminated = qData.choices.filter(c => {
+                    const normC = normalizeChoice(c);
+                    return !wrongAnswers.some(w => normalizeChoice(w) === normC);
+                });
+                if (uneliminated.length === 1) {
+                    rightAnswer = uneliminated[0];
+                    isVerified = true;
+                    isDeduced = true;
+                }
+            }
 
             if (rightAnswer || wrongAnswers.length > 0) {
                 if (rightAnswer) correctCount++;
@@ -5304,6 +5359,7 @@
                     wrongAnswers: normalizeWrongAnswers(wrongAnswers),
                     choices: qData.choices,
                     verified: isVerified,
+                    deduced: isDeduced,
                     period: detectedPeriod,
                     quizTitle: quizTitle
                 });
@@ -5739,13 +5795,171 @@
 
 
 
+    function escapeHtml(str) {
+        return String(str || '')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    function injectReviewQuestionMarkers(harvestedData = null) {
+        if (!checkIsReviewPage()) return;
+        const queList = document.querySelectorAll('.que');
+        if (queList.length === 0) return;
+
+        const courseInfo = detectCourseInfo();
+        const subCode = (harvestedData && harvestedData.subjectCode) ? harvestedData.subjectCode : (courseInfo.subjectCode || 'CS6301');
+        const cachedDb = getCachedAnswers(subCode);
+        const autoShareEnabled = localStorage.getItem('amaes_auto_community_share') !== 'false';
+        const autoPushEnabled = localStorage.getItem('amaes_auto_push_github') === 'true' && Boolean(localStorage.getItem('amaes_github_token'));
+        const isCloudSharingOn = autoShareEnabled || autoPushEnabled;
+
+        queList.forEach((que) => {
+            const qData = extractQuestionData(que);
+            if (!qData || !qData.qText) return;
+            const qNorm = normalizeText(qData.qText);
+
+            // Find matching item in harvested list or cached DB
+            const harvestedItem = harvestedData && harvestedData.questions ?
+                harvestedData.questions.find(q => q.qNorm === qNorm || (qData.qText && qData.qText.includes(q.qRaw))) : null;
+            const dbEntry = cachedDb.find(q => q.qNorm === qNorm || (qData.qText && qData.qText.includes(q.qRaw)));
+
+            const gradeElem = que.querySelector('.info .grade');
+            const gradeStr = gradeElem ? gradeElem.innerText : '';
+            const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Correct"], .outcome .fa-check, .outcome .correct');
+            const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr) || que.querySelector('.feedbackimage[alt="Incorrect"], .outcome .fa-remove, .outcome .fa-times');
+
+            const isVerified = Boolean((harvestedItem && harvestedItem.verified) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)));
+            const isDeduced = Boolean((harvestedItem && harvestedItem.deduced) || (dbEntry && dbEntry.deduced));
+            const ansText = (harvestedItem && harvestedItem.ansRaw) || (dbEntry && (dbEntry.ansRaw || dbEntry.answer)) || '';
+            const wrongList = (harvestedItem && harvestedItem.wrongAnswers) || (dbEntry && dbEntry.wrongAnswers) || [];
+
+            const infoCol = que.querySelector('.info');
+            const contentCol = que.querySelector('.content');
+
+            // 1. Sidebar Info Badge (Left box under Grade / Flag question)
+            let pill = que.querySelector('.amaes-review-status-pill');
+            if (!pill) {
+                pill = document.createElement('div');
+                pill.className = 'amaes-review-status-pill';
+                if (infoCol) {
+                    const gradeBox = infoCol.querySelector('.grade');
+                    if (gradeBox && gradeBox.nextSibling) {
+                        infoCol.insertBefore(pill, gradeBox.nextSibling);
+                    } else {
+                        infoCol.appendChild(pill);
+                    }
+                } else if (contentCol) {
+                    contentCol.insertBefore(pill, contentCol.firstChild);
+                }
+            }
+
+            if (isVerified && ansText) {
+                if (isCloudSharingOn) {
+                    pill.style.cssText = `
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                        padding: 4px 8px;
+                        margin-top: 6px;
+                        border-radius: 6px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        line-height: 1.25;
+                        background: rgba(16, 185, 129, 0.14);
+                        color: #059669;
+                        border: 1px solid rgba(16, 185, 129, 0.4);
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                        cursor: default;
+                    `;
+                    pill.title = `Correct answer "${ansText}" saved locally and uploaded to Global Community DB!`;
+                    pill.innerHTML = `${ICONS.cloudUpload} <span>${isDeduced ? 'Deduced & Uploaded' : 'Uploaded to DB'}</span>`;
+                } else {
+                    pill.style.cssText = `
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 5px;
+                        padding: 4px 8px;
+                        margin-top: 6px;
+                        border-radius: 6px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        line-height: 1.25;
+                        background: rgba(59, 130, 246, 0.14);
+                        color: #2563eb;
+                        border: 1px solid rgba(59, 130, 246, 0.4);
+                        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                        cursor: default;
+                    `;
+                    pill.title = `Correct answer "${ansText}" saved to local Verified DB (Community sharing toggle is OFF)`;
+                    pill.innerHTML = `${ICONS.database} <span>${isDeduced ? 'Deduced Locally' : 'Saved to Local DB'}</span>`;
+                }
+
+                // 2. In-Question Outcome Banner
+                const outcomeBox = que.querySelector('.outcome');
+                if (outcomeBox) {
+                    let banner = outcomeBox.querySelector('.amaes-review-outcome-banner');
+                    if (!banner) {
+                        banner = document.createElement('div');
+                        banner.className = 'amaes-review-outcome-banner';
+                        outcomeBox.appendChild(banner);
+                    }
+                    banner.style.cssText = `
+                        display: flex;
+                        align-items: center;
+                        justify-content: space-between;
+                        gap: 8px;
+                        margin-top: 8px;
+                        padding: 6px 12px;
+                        border-radius: 6px;
+                        font-size: 11.5px;
+                        font-weight: 600;
+                        background: ${isCloudSharingOn ? 'rgba(16, 185, 129, 0.12)' : 'rgba(59, 130, 246, 0.12)'};
+                        border: 1px solid ${isCloudSharingOn ? 'rgba(16, 185, 129, 0.35)' : 'rgba(59, 130, 246, 0.35)'};
+                        color: ${isCloudSharingOn ? '#065f46' : '#1e40af'};
+                    `;
+                    banner.innerHTML = `
+                        <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            ${isCloudSharingOn ? ICONS.cloudUpload : ICONS.database}
+                            <span><b>${isDeduced ? 'Deduced' : 'Verified'} Answer:</b> &ldquo;${escapeHtml(ansText)}&rdquo;</span>
+                        </div>
+                        <span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; background: ${isCloudSharingOn ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.25)'};">
+                            ${isCloudSharingOn ? 'UPLOADED TO DB' : 'SAVED LOCALLY'}
+                        </span>
+                    `;
+                }
+            } else if (isZeroMark || wrongList.length > 0) {
+                pill.style.cssText = `
+                    display: inline-flex;
+                    align-items: center;
+                    gap: 5px;
+                    padding: 4px 8px;
+                    margin-top: 6px;
+                    border-radius: 6px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    line-height: 1.25;
+                    background: rgba(239, 68, 68, 0.14);
+                    color: #dc2626;
+                    border: 1px solid rgba(239, 68, 68, 0.4);
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+                    cursor: default;
+                `;
+                const wrongText = wrongList.map(w => typeof w === 'string' ? w : w.text).join(', ') || 'Choice';
+                pill.title = `Wrong choice "${wrongText}" eliminated in database. Will not be selected on next attempt!`;
+                pill.innerHTML = `${ICONS.xCircle} <span>Wrong Choice Saved</span>`;
+            }
+        });
+    }
+
     let lastProcessedReviewAttempt = null;
     function handleQuizReviewPageLoad() {
         if (!checkIsReviewPage()) return;
 
         const urlParams = new URLSearchParams(window.location.search);
         const attemptId = urlParams.get('attempt') || window.location.pathname;
-        if (lastProcessedReviewAttempt === attemptId) return;
 
         // Check for multi-page review pagination: expand to show all questions on one page if available
         const showAllLink = document.querySelector('a[href*="review.php"][href*="showall=1"], a[href*="showall=true"]');
@@ -5758,19 +5972,35 @@
         }
 
         const harvested = harvestReviewAnswers();
+
+        // Always inject visual markers for questions on review page
+        injectReviewQuestionMarkers(harvested);
+
         if (!harvested || !harvested.success || (harvested.harvestedCount === 0 && (harvested.eliminatedCount || 0) === 0)) return;
 
+        if (lastProcessedReviewAttempt === attemptId) return;
         lastProcessedReviewAttempt = attemptId;
 
         // Auto-save verified answers and eliminated wrong choices to local subject cache
         const cacheRes = mergeAnswersIntoCache(harvested.subjectCode, harvested.questions, 'Review');
 
-        setLog(`<b>Quiz Review Checked:</b> Extracted <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices for <b>${harvested.subjectCode}</b>. Database updated!`, "var(--accent-green)");
-        showToast(`Review Checked: Harvested ${harvested.harvestedCount} verified answers & ${harvested.eliminatedCount || 0} wrong choices!`, 4000);
+        // Re-highlight choices so newly deduced or eliminated choices display updated badges
+        highlightQuizAnswers(getCachedAnswers(harvested.subjectCode), false);
+
+        // Update markers with fresh cache state
+        injectReviewQuestionMarkers(harvested);
+
+        const autoShareEnabled = localStorage.getItem('amaes_auto_community_share') !== 'false';
+        if (autoShareEnabled) {
+            setLog(`<b>Quiz Review Checked:</b> Extracted <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices for <b>${harvested.subjectCode}</b>. Uploaded to Community DB!`, "var(--accent-green)");
+            showToast(`Review Checked: Harvested ${harvested.harvestedCount} verified answers & uploaded to Community DB!`, 4000);
+        } else {
+            setLog(`<b>Quiz Review Checked:</b> Extracted <b>${harvested.harvestedCount}</b> verified answers for <b>${harvested.subjectCode}</b> (Saved to Local DB, sharing is OFF).`, "var(--accent-blue)");
+            showToast(`Review Checked: Harvested ${harvested.harvestedCount} verified answers & saved locally!`, 4000);
+        }
 
         const autoDlEnabled = localStorage.getItem('amaes_auto_dl_json') === 'true';
         const autoPushEnabled = localStorage.getItem('amaes_auto_push_github') === 'true';
-        const autoShareEnabled = localStorage.getItem('amaes_auto_community_share') !== 'false';
         const hasGithubToken = Boolean(localStorage.getItem('amaes_github_token'));
 
         // Prevent repeated auto-actions on refresh using sessionStorage attempt keys
@@ -6400,6 +6630,10 @@
             autoCommunityShare = v;
             const p = document.getElementById('chk-auto-community-share');
             if (p) p.checked = v;
+            if (checkIsReviewPage()) {
+                document.querySelectorAll('.amaes-review-status-pill, .amaes-review-outcome-banner').forEach(el => el.remove());
+                injectReviewQuestionMarkers();
+            }
         });
         bindWelcomeToggle('welcome-chk-harvest', 'amaes_auto_harvest_grades', (v) => {
             autoHarvestGrades = v;
@@ -8432,6 +8666,10 @@
                 localStorage.setItem('amaes_auto_community_share', autoCommunityShare);
                 showToast(`Auto-share to Community Hub: ${autoCommunityShare ? 'Enabled' : 'Disabled'}`);
                 setLog(`Auto-share verified answers on Review: <b>${autoCommunityShare ? 'ON' : 'OFF'}</b>`, autoCommunityShare ? "var(--accent-green)" : "var(--accent-amber)", autoCommunityShare ? "Anonymously contributes new teacher keys on review" : "Sharing disabled");
+                if (checkIsReviewPage()) {
+                    document.querySelectorAll('.amaes-review-status-pill, .amaes-review-outcome-banner').forEach(el => el.remove());
+                    injectReviewQuestionMarkers();
+                }
             };
         }
 

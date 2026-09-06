@@ -1724,6 +1724,115 @@ test("Paste AI (V) Shortcut on Drag and Drop: parses blank-specific answers and 
     assert.ok(vPasteSection.includes("matchingDrag.dispatchEvent"), "Must dispatch event to place drag item");
 });
 
+// --------------------------------------------------
+// 56. Multi-Type Review Harvesting & Deduction (Cloze, Select, Drag, True/False)
+// --------------------------------------------------
+test("Review Harvesting: extracts Cloze, Select, Drag & Drop, and deduces True/False", () => {
+    function simulateReviewHarvest(qData, isFullMark, isZeroMark, userInputs) {
+        let rightAnswer = '';
+        let isVerified = false;
+        let isDeduced = false;
+        const wrongAnswers = [];
+
+        if (isFullMark) {
+            if (userInputs.length > 0) {
+                rightAnswer = userInputs.join(', ');
+                isVerified = true;
+            }
+        }
+
+        if (isZeroMark) {
+            userInputs.forEach(u => wrongAnswers.push(u));
+        }
+
+        // Real-time deduction by elimination
+        if (!rightAnswer && wrongAnswers.length > 0 && Array.isArray(qData.choices) && qData.choices.length > 1) {
+            const uneliminated = qData.choices.filter(c => !wrongAnswers.includes(c));
+            if (uneliminated.length === 1) {
+                rightAnswer = uneliminated[0];
+                isVerified = true;
+                isDeduced = true;
+            }
+        }
+
+        return { rightAnswer, isVerified, isDeduced, wrongAnswers };
+    }
+
+    // 1. True/False question where True scored 0 marks -> False is deduced!
+    const tfQuestion = { choices: ["True", "False"] };
+    const tfRes = simulateReviewHarvest(tfQuestion, false, true, ["True"]);
+    assert.strictEqual(tfRes.isVerified, true, "True/False with wrong True must deduce False");
+    assert.strictEqual(tfRes.isDeduced, true, "Must be flagged as deduced");
+    assert.strictEqual(tfRes.rightAnswer, "False");
+    assert.deepStrictEqual(tfRes.wrongAnswers, ["True"]);
+
+    // 2. Cloze input question scored 1 mark -> value "6" harvested as verified
+    const clozeQuestion = { choices: [] };
+    const clozeRes = simulateReviewHarvest(clozeQuestion, true, false, ["6"]);
+    assert.strictEqual(clozeRes.isVerified, true);
+    assert.strictEqual(clozeRes.rightAnswer, "6");
+
+    // 3. Drag & Drop question scored 1 mark -> "David Hilbert" harvested as verified
+    const dragQuestion = { choices: ["David Hilbert", "Alan Turing"] };
+    const dragRes = simulateReviewHarvest(dragQuestion, true, false, ["David Hilbert"]);
+    assert.strictEqual(dragRes.isVerified, true);
+    assert.strictEqual(dragRes.rightAnswer, "David Hilbert");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("selectedDropdownTexts"), "harvestFromReviewDOM must extract dropdown selections");
+    assert.ok(script.includes("placedDropTexts"), "harvestFromReviewDOM must extract drag & drop placed texts");
+    assert.ok(script.includes("filledInputTexts"), "harvestFromReviewDOM must extract cloze text inputs");
+});
+
+// --------------------------------------------------
+// 57. Question Status Markers on Review Screen
+// --------------------------------------------------
+test("Review Question Markers: displays Uploaded to DB badge when share is ON vs Saved Locally when OFF", () => {
+    function getMarkerStatus(isVerified, isDeduced, isZeroMark, autoShareEnabled) {
+        if (isVerified) {
+            if (autoShareEnabled) {
+                return { label: isDeduced ? "Deduced & Uploaded" : "Uploaded to DB", type: "cloud", liveTag: "UPLOADED TO DB" };
+            } else {
+                return { label: isDeduced ? "Deduced Locally" : "Saved to Local DB", type: "local", liveTag: "SAVED LOCALLY" };
+            }
+        } else if (isZeroMark) {
+            return { label: "Wrong Choice Saved", type: "eliminated" };
+        }
+        return null;
+    }
+
+    // When sharing is ON
+    const cloudVerified = getMarkerStatus(true, false, false, true);
+    assert.strictEqual(cloudVerified.label, "Uploaded to DB");
+    assert.strictEqual(cloudVerified.type, "cloud");
+    assert.strictEqual(cloudVerified.liveTag, "UPLOADED TO DB");
+
+    const cloudDeduced = getMarkerStatus(true, true, false, true);
+    assert.strictEqual(cloudDeduced.label, "Deduced & Uploaded");
+
+    // When sharing is OFF
+    const localVerified = getMarkerStatus(true, false, false, false);
+    assert.strictEqual(localVerified.label, "Saved to Local DB");
+    assert.strictEqual(localVerified.type, "local");
+    assert.strictEqual(localVerified.liveTag, "SAVED LOCALLY");
+
+    // Wrong choice eliminated
+    const wrongElim = getMarkerStatus(false, false, true, true);
+    assert.strictEqual(wrongElim.label, "Wrong Choice Saved");
+    assert.strictEqual(wrongElim.type, "eliminated");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("function injectReviewQuestionMarkers"), "Must define injectReviewQuestionMarkers");
+    assert.ok(script.includes("amaes-review-status-pill"), "Must inject amaes-review-status-pill into question info");
+    assert.ok(script.includes("amaes-review-outcome-banner"), "Must inject amaes-review-outcome-banner into outcome");
+    assert.ok(script.includes("Uploaded to DB"), "Must show Uploaded to DB when cloud sharing is on");
+    assert.ok(script.includes("Saved to Local DB"), "Must show Saved to Local DB when cloud sharing is off");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
