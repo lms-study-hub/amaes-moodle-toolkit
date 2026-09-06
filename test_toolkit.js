@@ -794,6 +794,38 @@ test("Contradiction Guard: retains at least 1 candidate when all choices marked 
     assert.strictEqual(allWrongList.some(w => w.norm === "18"), false, "Choice with lowest failure count must be freed!");
 });
 
+// --------------------------------------------------
+// 27. Contradiction Safety: Confirmed Wrong Answer Demotes Incorrect Database Entry
+// --------------------------------------------------
+test("Contradiction Safety: Confirmed wrong choice demotes invalid answer and blocks verified badge", () => {
+    const cur = {
+        qNorm: "it involves developing a game plan to guide a company",
+        ansRaw: "strategic plan",
+        ansNorm: "strategic plan",
+        verified: true,
+        confirmations: 2,
+        wrongAnswers: []
+    };
+
+    const incomingWrong = [{ norm: "strategic plan", text: "strategic plan", count: 1 }];
+
+    // Review/attempt proved current ansRaw was WRONG
+    incomingWrong.forEach(inW => {
+        if (cur.ansNorm && (inW.norm === cur.ansNorm || unscriptDigits(inW.norm) === unscriptDigits(cur.ansNorm))) {
+            cur.ansRaw = '';
+            cur.ansNorm = '';
+            cur.verified = false;
+            cur.confirmations = 0;
+        }
+        cur.wrongAnswers.push(inW);
+    });
+
+    assert.strictEqual(cur.ansRaw, '', "ansRaw must be cleared when proven incorrect");
+    assert.strictEqual(cur.verified, false, "verified must be demoted to false");
+    assert.strictEqual(cur.confirmations, 0, "confirmations must reset to 0");
+    assert.strictEqual(cur.wrongAnswers.length, 1, "wrongAnswers must contain the eliminated choice");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

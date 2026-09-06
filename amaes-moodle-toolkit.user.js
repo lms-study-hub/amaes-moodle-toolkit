@@ -2466,14 +2466,12 @@
 
             // Compile all eliminated wrong choices known for this question
             const allWrongList = [];
-            const verifiedNorms = candidates.map(c => c.ansNorm || normalizeChoice(c.ansRaw || c.answer || '')).filter(Boolean);
             candidates.forEach(cand => {
                 if (Array.isArray(cand.wrongAnswers)) {
                     cand.wrongAnswers.forEach(w => {
                         const wNorm = typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || ''));
                         const wCount = typeof w === 'object' && typeof w.count === 'number' ? w.count : 1;
-                        // Never add known verified answer to allWrongList!
-                        if (wNorm && !verifiedNorms.includes(wNorm) && !allWrongList.some(item => item.norm === wNorm)) {
+                        if (wNorm && !allWrongList.some(item => item.norm === wNorm || unscriptDigits(item.norm) === unscriptDigits(wNorm))) {
                             allWrongList.push({ norm: wNorm, text: typeof w === 'string' ? w : w.text, count: wCount });
                         }
                     });
@@ -2508,17 +2506,19 @@
                 
                 // Extract clean text without badges
                 const choiceText = normalizeChoice(cleanDOMToAI(label));
+                const isEliminatedChoice = allWrongList.some(w => w.norm === choiceText || unscriptDigits(w.norm) === unscriptDigits(choiceText));
 
-                // 1. Check against verified candidate answers
-                for (const cand of candidates) {
-                    const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || cand.answer || '');
-                    if (!ansNorm) continue;
-                    const isDirectMatch = choiceText === ansNorm;
-                    const isMultiAnswerMatch = (ansNorm.includes(',') || ansNorm.includes(';') || ansNorm.includes('&')) &&
-                        ansNorm.split(/[,;&]+/).map(s => normalizeChoice(s)).includes(choiceText);
+                // 1. Check against verified candidate answers (ONLY if NOT confirmed wrong!)
+                if (!isEliminatedChoice) {
+                    for (const cand of candidates) {
+                        const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || cand.answer || '');
+                        if (!ansNorm) continue;
+                        const isDirectMatch = choiceText === ansNorm;
+                        const isMultiAnswerMatch = (ansNorm.includes(',') || ansNorm.includes(';') || ansNorm.includes('&')) &&
+                            ansNorm.split(/[,;&]+/).map(s => normalizeChoice(s)).includes(choiceText);
 
-                    if (isDirectMatch || isMultiAnswerMatch) {
-                        foundMatchForQuestion = true;
+                        if (isDirectMatch || isMultiAnswerMatch) {
+                            foundMatchForQuestion = true;
 
                         const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
                         const isDeduced = cand.deduced === true;
@@ -2598,10 +2598,11 @@
                         break;
                     }
                 }
+            }
 
-                // 2. Check if choice is confirmed WRONG (elimination)
-                if (!foundMatchForQuestion && allWrongList.length > 0) {
-                    const matchedWrong = allWrongList.find(w => w.norm === choiceText);
+            // 2. Check if choice is confirmed WRONG (elimination)
+                if ((isEliminatedChoice || !foundMatchForQuestion) && allWrongList.length > 0) {
+                    const matchedWrong = allWrongList.find(w => w.norm === choiceText || unscriptDigits(w.norm) === unscriptDigits(choiceText));
                     if (matchedWrong) {
                         const targetRow = row;
                         targetRow.classList.add('amaes-eliminated-choice');
@@ -3393,28 +3394,35 @@
             const moodleQNorm = normalizeText(data.qText);
             const cand = cached.find(c => c.qNorm === moodleQNorm || (c.qNorm.length > 20 && (c.qNorm.includes(moodleQNorm) || moodleQNorm.includes(c.qNorm))));
             if (cand) {
-                if (cand.ansRaw) {
-                    const isDeduced = Boolean(cand.deduced);
-                    const isVerified = Boolean(cand.verified);
-                    const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
-                    const prob = isVerified ? 100 : (isAmauoed ? 95 : 90);
-                    const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : (isAmauoed ? 'AMAUOED • 95% Probability' : `${prob}% Probability`));
-                    detectedAnswer = {
-                        text: cand.ansRaw,
-                        label: label,
-                        source: cand.source || 'Verified Database'
-                    };
-                }
                 if (Array.isArray(cand.wrongAnswers) && cand.wrongAnswers.length > 0) {
-                    const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || '');
                     eliminatedWrong = cand.wrongAnswers
                         .map(w => typeof w === 'string' ? w : w.text)
-                        .filter(w => {
-                            if (!w) return false;
-                            const wNorm = normalizeChoice(w);
-                            if (ansNorm && (wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm))) return false;
-                            return true;
-                        });
+                        .filter(Boolean);
+                }
+
+                if (cand.ansRaw) {
+                    const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || '');
+                    const isConfirmedWrong = eliminatedWrong.some(w => {
+                        const wNorm = normalizeChoice(w);
+                        return wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm);
+                    });
+
+                    if (!isConfirmedWrong) {
+                        const isDeduced = Boolean(cand.deduced);
+                        const isVerified = Boolean(cand.verified);
+                        const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
+                        const prob = isVerified ? 100 : (isAmauoed ? 95 : 90);
+                        const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : (isAmauoed ? 'AMAUOED • 95% Probability' : `${prob}% Probability`));
+                        detectedAnswer = {
+                            text: cand.ansRaw,
+                            label: label,
+                            source: cand.source || 'Verified Database'
+                        };
+                    } else {
+                        cand.ansRaw = '';
+                        cand.ansNorm = '';
+                        cand.verified = false;
+                    }
                 }
             }
         }
@@ -3782,9 +3790,12 @@
 
                 // Merge incoming wrong answers with weighting
                 incomingWrong.forEach(inW => {
-                    // Safety Guard: Never add known verified answer into wrong answers list
+                    // Safety Guard: If incoming wrong answer matches current ansNorm, review/attempt proved cur.ansRaw was WRONG!
                     if (cur.ansNorm && (inW.norm === cur.ansNorm || unscriptDigits(inW.norm) === unscriptDigits(cur.ansNorm))) {
-                        return;
+                        cur.ansRaw = '';
+                        cur.ansNorm = '';
+                        cur.verified = false;
+                        cur.confirmations = 0;
                     }
                     const existingW = cur.wrongAnswers.find(w => w.norm === inW.norm || unscriptDigits(w.norm) === unscriptDigits(inW.norm));
                     if (existingW) {
