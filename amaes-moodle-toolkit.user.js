@@ -4823,19 +4823,6 @@
                         </div>
                     </div>
                 </div>
-
-                    <!-- CARD: Setup & Classmate Sharing Guide -->
-                    <div class="amaes-card" style="border: 1px solid rgba(59, 130, 246, 0.35); background: rgba(59, 130, 246, 0.05); margin-top: 2px;">
-                        <div style="padding: 7px 10px; display: flex; align-items: center; justify-content: space-between;">
-                            <div style="display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; color: #93c5fd;">
-                                ${ICONS.help} <span>Browser Setup & Guide</span>
-                            </div>
-                            <button id="btn-open-install-guide" class="amaes-btn amaes-btn-blue" style="font-size: 10px; padding: 3px 8px; cursor: pointer;" title="Open complete Violentmonkey / Developer mode setup instructions">
-                                <span>Open Guide</span>
-                            </button>
-                        </div>
-                    </div>
-                </div>
                 <!-- Stop Button -->
                 <button id="amaes-stop-btn" class="amaes-btn amaes-btn-stop" style="display: none; margin-bottom: 6px;">
                     ${ICONS.stop} <span>Stop Execution</span>
@@ -6149,13 +6136,6 @@ setupPersistentAccordion('mod-search-header', 'mod-search-body', 'mod-search-arr
             window.open(url, '_blank');
             setLog(`Opened Google search for: "<b>${query}</b>"`, "var(--accent-blue)");
         };
-
-        const btnOpenInstallGuide = document.getElementById('btn-open-install-guide');
-        if (btnOpenInstallGuide) {
-            btnOpenInstallGuide.onclick = () => {
-                showWelcomeOnboardingModal(true);
-            };
-        }
 
         // Theme Toggle Handler
         if (themeBtn) themeBtn.onclick = () => {
