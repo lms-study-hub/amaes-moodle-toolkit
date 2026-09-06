@@ -641,58 +641,6 @@
         });
     }
 
-    // Injects 1-Click "Mark Lectures as Done" directly into course homepage header
-    function injectCoursePageHeaderActions() {
-        if (!isUserLoggedIn() || !checkIsCoursePage()) return;
-        if (document.getElementById('amaes-course-header-actions')) return;
-
-        const headerTarget = document.querySelector('.page-header-headings, #page-header, .course-content, #region-main');
-        if (!headerTarget) return;
-
-        const container = document.createElement('div');
-        container.id = 'amaes-course-header-actions';
-        container.style.cssText = `
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            margin: 8px 0;
-            padding: 6px 10px;
-            background: var(--surface, #1e293b);
-            border: 1px solid var(--border, #334155);
-            border-radius: 8px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-            z-index: 100;
-        `;
-
-        container.innerHTML = `
-            <button id="btn-quick-mark-lectures" class="amaes-btn amaes-btn-blue" style="padding: 4px 10px; font-size: 11px; font-weight: 700; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 5px;" title="Automatically mark all reading materials and video lectures as completed">
-                ${ICONS.check} <span>Mark Lectures Done</span>
-            </button>
-            <button id="btn-quick-undo-lectures" class="amaes-btn amaes-btn-outline" style="padding: 4px 8px; font-size: 10.5px; border-radius: 6px; cursor: pointer; display: inline-flex; align-items: center; gap: 4px;" title="Undo lecture completion status">
-                ${ICONS.undo} <span>Undo</span>
-            </button>
-        `;
-
-        headerTarget.appendChild(container);
-
-        const btnMark = container.querySelector('#btn-quick-mark-lectures');
-        if (btnMark) {
-            btnMark.onclick = (e) => {
-                e.preventDefault();
-                runBatch('mark_done', 'lecture');
-            };
-        }
-
-        const btnUndo = container.querySelector('#btn-quick-undo-lectures');
-        if (btnUndo) {
-            btnUndo.onclick = (e) => {
-                e.preventDefault();
-                runBatch('undo', 'lecture');
-            };
-        }
-    }
-
     // ==========================================
     // Course & Activity Detection
     // ==========================================
@@ -6584,7 +6532,6 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
         setupQuizKeyboardShortcuts();
         showWelcomeOnboardingModal(false);
         injectDashboardCourseBadges();
-        injectCoursePageHeaderActions();
         checkForScriptUpdates(false);
 
         // Auto Cloud Sync: sync answers from community repository once per session in background
@@ -6623,13 +6570,6 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
             obs.observe(document.body, { childList: true, subtree: true });
         }
 
-        // Observe DOM mutations on course homepage to maintain quick action header
-        if (checkIsCoursePage()) {
-            const courseObs = new MutationObserver(() => {
-                injectCoursePageHeaderActions();
-            });
-            courseObs.observe(document.body, { childList: true, subtree: true });
-        }
     }
 
     if (document.readyState === 'loading') {
