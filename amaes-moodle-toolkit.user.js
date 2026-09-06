@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.0
+// @version      1.2.1
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.0";
+    const SCRIPT_VERSION = "v1.2.1";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -1980,6 +1980,14 @@
             <button id="btn-hud-toggle-quiz" class="amaes-inline-btn" style="padding: 3px 10px; font-size: 10px; background: ${autoQuizMode ? 'rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444' : 'rgba(16,185,129,0.25); color:#10b981; border:1px solid #10b981'}; border-radius: 12px; cursor: pointer; font-weight: 600;">
                 ${autoQuizMode ? 'Pause' : 'Start'}
             </button>
+
+            <!-- Quick Keys Hint Strip -->
+            <div style="display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--text-muted, #94a3b8); border-left: 1px solid rgba(255,255,255,0.15); padding-left: 8px;" title="Tips: [N] / [Space] Next Page • [1-4] / [A-D] Pick Choice • [C] Copy for AI • [V] Paste AI • [P] Pause">
+                <span style="font-weight: 700; color: #a78bfa;">Tips:</span>
+                <span style="color: #cbd5e1;"><kbd style="background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 9px; font-weight: 700; color: #fff;">N</kbd> Next</span>
+                <span style="color: #cbd5e1;"><kbd style="background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 9px; font-weight: 700; color: #fff;">1-4</kbd> Pick</span>
+                <span style="color: #cbd5e1;"><kbd style="background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 9px; font-weight: 700; color: #fff;">C</kbd> AI</span>
+            </div>
 
             <!-- Toggle Toolkit Panel -->
             <button id="btn-hud-expand-panel" class="amaes-inline-btn" style="padding: 3px 8px; font-size: 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; cursor: pointer;" title="Toggle Full Toolkit Panel">
@@ -5016,38 +5024,51 @@
                         </div>
                     </div>
 
-                    <!-- 3. Keyboard Shortcuts (In Quizzes) -->
-                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                    <!-- 3. Tips & Tricks: Hands-Free Shortcuts -->
+                    <div id="welcome-shortcuts-section" style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 8px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
                             <div style="font-weight: 700; color: #c4b5fd; font-size: 12px; display: flex; align-items: center; gap: 6px;">
-                                ${ICONS.keyboard} <span>Keyboard Shortcuts (In Quizzes)</span>
+                                ${ICONS.zap} <span>Tips & Tricks (Hands-Free Quiz Speedrun)</span>
                             </div>
-                            <span style="font-size: 9.5px; color: var(--text-muted);">Instant Hands-Free Solving</span>
+                            <span style="font-size: 9.5px; color: var(--text-muted);">No Mouse Needed!</span>
                         </div>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; font-size: 10.5px;">
-                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">Space / N</kbd>
-                                <span>Next Question</span>
+
+                        <!-- Explanatory Pro-Tips Cards -->
+                        <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--text-secondary, #cbd5e1);">
+                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
+                                <div style="display: flex; gap: 3px; flex-shrink: 0;">
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">N</kbd>
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">Space</kbd>
+                                </div>
+                                <span><b>Next Page:</b> Instead of scrolling down to click "Next page", just press <b style="color: #fff;">N</b> or <b style="color: #fff;">Space</b>!</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">1 - 4</kbd>
-                                <span>Pick Choice A - D</span>
+
+                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
+                                <div style="display: flex; gap: 3px; flex-shrink: 0;">
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">1</kbd>
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">2</kbd>
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">3</kbd>
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">4</kbd>
+                                </div>
+                                <span><b>Pick Choices:</b> Instead of clicking radio circles, press <b style="color: #fff;">1 - 4</b> (or <b style="color: #fff;">A - D</b>) to select choices A, B, C, D!</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">C</kbd>
-                                <span>Copy for AI</span>
+
+                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace; flex-shrink: 0;">C</kbd>
+                                <span><b>Copy for AI:</b> Press <b style="color: #fff;">C</b> to instantly copy question & choices with direct-answer prompt to AI.</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">V</kbd>
-                                <span>Paste AI Answer</span>
+
+                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
+                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace; flex-shrink: 0;">V</kbd>
+                                <span><b>Paste AI Answer:</b> Press <b style="color: #fff;">V</b> to auto-detect and select the matching choice from your clipboard!</span>
                             </div>
-                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">P</kbd>
-                                <span>Pause / Resume</span>
-                            </div>
-                            <div style="display: flex; align-items: center; gap: 6px; background: rgba(0,0,0,0.25); padding: 4px 6px; border-radius: 4px;">
-                                <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 5px; border-radius: 3px; font-weight: 700; font-size: 9.5px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">H</kbd>
-                                <span>Highlight DB</span>
+
+                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
+                                <div style="display: flex; gap: 3px; flex-shrink: 0;">
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">P</kbd>
+                                    <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">H</kbd>
+                                </div>
+                                <span><b>Pause / Highlight:</b> Press <b style="color: #fff;">P</b> to pause/resume auto-quiz, and <b style="color: #fff;">H</b> to re-highlight database answers.</span>
                             </div>
                         </div>
                     </div>
@@ -5467,6 +5488,19 @@
                             <input id="chk-ai-prompt-hint" type="checkbox" ${aiPromptHint ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Strict AI prompt (a, b, c, d only)</span>
                         </label>
+                    </div>
+
+                    <!-- Pro Tips & Tricks Card -->
+                    <div style="background: rgba(167, 139, 250, 0.08); border: 1px solid rgba(167, 139, 250, 0.25); border-radius: 6px; padding: 7px 9px; font-size: 10px; line-height: 1.45; color: var(--text-secondary); margin-top: 2px;">
+                        <div style="font-weight: 700; color: #c4b5fd; margin-bottom: 4px; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="display: flex; align-items: center; gap: 5px;">${ICONS.zap} <span>Tips & Tricks (Hands-Free)</span></span>
+                            <span style="font-size: 9px; color: var(--text-muted);">No Mouse Needed</span>
+                        </div>
+                        <div style="display: flex; flex-direction: column; gap: 3px;">
+                            <div>• <b>Next Page:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">N</kbd> or <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">Space</kbd> instead of scrolling to click Next!</div>
+                            <div>• <b>Pick Choice:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">1</kbd>-<kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">4</kbd> (or <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">A</kbd>-<kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">D</kbd>) instead of clicking radio circles!</div>
+                            <div>• <b>AI Solve:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">C</kbd> to copy for AI, then <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">V</kbd> to auto-select the answer!</div>
+                        </div>
                     </div>
                 </div>
 

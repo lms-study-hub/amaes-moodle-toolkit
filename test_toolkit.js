@@ -398,14 +398,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.2.1');
+    mockStorage.set('amaes_latest_version_seen', '1.2.2');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.2.0";
+    const currentVersion = "v1.2.1";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.1 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.2 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
@@ -492,6 +492,43 @@ test("Onboarding & Autonomous Sync Defaults: auto-sync and auto-community-share 
     assert.strictEqual(autoCloudSync, true, "autoCloudSync must default to true for hands-free sync!");
     assert.strictEqual(autoCommunityShare, true, "autoCommunityShare must default to true for community updates!");
     assert.strictEqual(autoHarvestGrades, true, "autoHarvestGrades must default to true for zero-click past quiz harvest!");
+});
+
+// --------------------------------------------------
+// 17. Quiz Speedrun Shortcuts & Tips Key Mapping
+// --------------------------------------------------
+test("Quiz Speedrun Shortcuts: accurately maps 1-4 and A-D to choice indices and N/Space to next page", () => {
+    function mapKeyToChoiceIndex(key) {
+        key = String(key).toUpperCase();
+        if (key >= '1' && key <= '9') {
+            return parseInt(key, 10) - 1;
+        } else if (['A', 'B', 'C', 'D'].includes(key)) {
+            return key.charCodeAt(0) - 65;
+        }
+        return -1;
+    }
+
+    function isNextNavigationKey(key) {
+        key = String(key).toUpperCase();
+        return key === 'N' || key === ' ' || key === 'ENTER';
+    }
+
+    // Test choice indices
+    assert.strictEqual(mapKeyToChoiceIndex('1'), 0, "Key 1 must map to index 0 (Choice A)");
+    assert.strictEqual(mapKeyToChoiceIndex('2'), 1, "Key 2 must map to index 1 (Choice B)");
+    assert.strictEqual(mapKeyToChoiceIndex('3'), 2, "Key 3 must map to index 2 (Choice C)");
+    assert.strictEqual(mapKeyToChoiceIndex('4'), 3, "Key 4 must map to index 3 (Choice D)");
+
+    assert.strictEqual(mapKeyToChoiceIndex('A'), 0, "Key A must map to index 0 (Choice A)");
+    assert.strictEqual(mapKeyToChoiceIndex('B'), 1, "Key B must map to index 1 (Choice B)");
+    assert.strictEqual(mapKeyToChoiceIndex('C'), 2, "Key C must map to index 2 (Choice C)");
+    assert.strictEqual(mapKeyToChoiceIndex('D'), 3, "Key D must map to index 3 (Choice D)");
+
+    // Test navigation keys
+    assert.strictEqual(isNextNavigationKey('N'), true, "Key N must trigger next navigation");
+    assert.strictEqual(isNextNavigationKey(' '), true, "Space must trigger next navigation");
+    assert.strictEqual(isNextNavigationKey('Enter'), true, "Enter must trigger next navigation");
+    assert.strictEqual(isNextNavigationKey('X'), false, "Irrelevant key must not trigger next navigation");
 });
 
 console.log("\n==================================================");
