@@ -6045,10 +6045,13 @@
                     </div>
                     ` : ''}
 
-                    <!-- Action Buttons: Copy Question & Paste AI -->
+                    <!-- Action Buttons: Copy Question, Copy All & Paste AI -->
                     <div style="display: flex; gap: 4px; margin-top: 2px;">
                         <button id="btn-copy-curr-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 5px 4px; cursor: pointer; font-size: 10px;" title="Copy current question & choices formatted for AI (Shortcut: C)">
-                            ${ICONS.copy} <span>Copy Question (C)</span>
+                            ${ICONS.copy} <span>Copy Q (C)</span>
+                        </button>
+                        <button id="btn-copy-all-q" class="amaes-btn amaes-btn-outline" style="flex: 1; justify-content: center; padding: 5px 4px; cursor: pointer; font-size: 10px;" title="Copy all questions on current page formatted for AI batch prompt">
+                            ${ICONS.copy} <span>Copy All</span>
                         </button>
                         <button id="btn-paste-ai-ans" class="amaes-btn amaes-btn-blue" style="flex: 1; justify-content: center; padding: 5px 4px; cursor: pointer; font-size: 10px;" title="Read AI answer from clipboard and auto-select matching choice (Shortcut: V)">
                             ${ICONS.clipboard} <span>Paste AI (V)</span>

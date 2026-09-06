@@ -1302,8 +1302,9 @@ test("Button Binding Integrity: createPanel declares all element references with
     const fs = require('fs');
     const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
 
-    // Verify btnCopyAllQ is declared
+    // Verify btnCopyAllQ is declared and in markup
     assert.ok(script.includes("const btnCopyAllQ = document.getElementById('btn-copy-all-q');"), "btnCopyAllQ must be declared to prevent ReferenceError in createPanel");
+    assert.ok(script.includes('id="btn-copy-all-q"'), "btn-copy-all-q must be present in Action Buttons markup");
     assert.ok(script.includes("btnCloudSync.classList.add('amaes-pulse');"), "btnCloudSync must trigger pulse animation");
     assert.ok(script.includes("btnHarvestGradesDb.classList.add('amaes-pulse');"), "btnHarvestGradesDb must trigger pulse animation");
     assert.ok(script.includes(".amaes-btn:active"), "CSS must include :active scale press effect for tactile feedback");
