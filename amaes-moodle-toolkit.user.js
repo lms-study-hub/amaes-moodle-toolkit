@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.8
-// @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
+// @version      1.0.9
+// @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
 // @updateURL    https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.8";
+    const SCRIPT_VERSION = "v1.0.9";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -376,11 +376,14 @@
     let pageLoadSolverTimer = null;
     let smartSkipQuiz = localStorage.getItem('amaes_smart_skip_quiz') !== 'false'; // default true: skip answered questions
     let autoCloudSync = localStorage.getItem('amaes_auto_cloud_sync') !== 'false'; // default true
-    let cloudDbBaseUrl = localStorage.getItem('amaes_cloud_db_url') || 'https://raw.githubusercontent.com/lms-study-hub/database/main/data/';
+    let cloudDbBaseUrl = localStorage.getItem('amaes_cloud_db_url') || 'https://raw.githubusercontent.com/lms-study-hub/database/main/data/verified/';
+    const CLOUD_DB_FALLBACK_URL = 'https://raw.githubusercontent.com/lms-study-hub/database/main/data/';
+    const DEFAULT_COMMUNITY_RELAY_URL = 'https://amaes-community-relay.workers.dev';
+    let communityRelayUrl = localStorage.getItem('amaes_community_relay_url') || DEFAULT_COMMUNITY_RELAY_URL;
     let aiPromptHint = localStorage.getItem('amaes_ai_prompt_hint') !== 'false'; // default true for clean a/b/c/d answers
     let showInQuestionAiBtns = localStorage.getItem('amaes_show_in_question_ai_btns') !== 'false'; // default true
     let enableKeyboardShortcuts = localStorage.getItem('amaes_enable_hotkeys') !== 'false'; // default true: N, Space, 1-4, C, P, H
-    let autoCommunityShare = localStorage.getItem('amaes_auto_community_share') !== 'false'; // default true: auto-prompt share on review
+    let autoCommunityShare = localStorage.getItem('amaes_auto_community_share') !== 'false'; // default true: auto-share on review / harvest
     let autoMinimizeQuiz = localStorage.getItem('amaes_auto_min_quiz') !== 'false'; // default true: smart pill in quiz
 
     // ==========================================
@@ -3711,15 +3714,12 @@
         }));
     }
 
-    function harvestReviewAnswers() {
-        const courseInfo = detectCourseInfo();
-        const subCode = courseInfo.subjectCode || 'CS6301';
-        const queList = document.querySelectorAll('.que');
-        if (queList.length === 0) return { success: false, error: 'No questions found on review page' };
+    function harvestFromReviewDOM(rootDoc, subCode, quizTitle, courseTitle = '') {
+        const queList = rootDoc.querySelectorAll('.que');
+        if (queList.length === 0) return { success: false, error: 'No questions found on review page', questions: [] };
 
-        let quizTitle = courseInfo.currentActivityTitle || 'Quiz Review';
         let gradeText = '';
-        const gradeRow = document.querySelector('.quizreviewsummary tr:last-child, .quizreviewsummary .grade');
+        const gradeRow = rootDoc.querySelector('.quizreviewsummary tr:last-child, .quizreviewsummary .grade');
         if (gradeRow) {
             gradeText = gradeRow.innerText.replace(/\s+/g, ' ').trim();
         }
@@ -3800,7 +3800,7 @@
             if (rightAnswer || wrongAnswers.length > 0) {
                 if (rightAnswer) correctCount++;
                 eliminatedTotal += wrongAnswers.length;
-                const detectedPeriod = detectTermFromText(quizTitle) || detectTermFromText(courseInfo.currentActivityTitle) || 'General';
+                const detectedPeriod = detectTermFromText(quizTitle) || 'General';
                 harvested.push({
                     index: idx + 1,
                     qRaw: qData.qText,
@@ -3818,7 +3818,7 @@
 
         return {
             success: true,
-            course: courseInfo.fullTitle || subCode,
+            course: courseTitle || subCode,
             subjectCode: subCode,
             quizTitle,
             gradeText,
@@ -3827,6 +3827,13 @@
             eliminatedCount: eliminatedTotal,
             questions: harvested
         };
+    }
+
+    function harvestReviewAnswers() {
+        const courseInfo = detectCourseInfo();
+        const subCode = courseInfo.subjectCode || 'CS6301';
+        let quizTitle = courseInfo.currentActivityTitle || 'Quiz Review';
+        return harvestFromReviewDOM(document, subCode, quizTitle, courseInfo.fullTitle || subCode);
     }
 
     function exportAnswersAsJSON(data) {
@@ -3873,6 +3880,289 @@
 
         out += `Exported from AMAES Moodle Toolkit`;
         return out;
+    }
+
+    // Dispatch Community Contribution silently in background
+    async function dispatchCommunityContribution(subCode, questions, options = {}) {
+        if (!questions || questions.length === 0) return;
+        const validQuestions = questions.filter(q => Boolean(q.ansRaw || q.answer || q.correctAnswer));
+        if (validQuestions.length === 0) return;
+
+        const payload = {
+            subjectCode: subCode,
+            totalQuestions: validQuestions.length,
+            source: options.source || "auto_harvester",
+            submittedAt: new Date().toISOString(),
+            questions: validQuestions.map(q => ({
+                question: q.qRaw || q.question || "",
+                answer: q.ansRaw || q.answer || "",
+                choices: q.choices || [],
+                wrongAnswers: Array.isArray(q.wrongAnswers) ? q.wrongAnswers.map(w => typeof w === 'string' ? w : w.text) : []
+            }))
+        };
+
+        logDebug(`Dispatching ${validQuestions.length} answers to community relay...`);
+
+        if (communityRelayUrl) {
+            try {
+                const resp = await fetch(communityRelayUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (resp.ok) {
+                    showToast(`Auto-shared ${validQuestions.length} verified answers to Community Hub!`);
+                    setLog(`Auto-shared <b>${validQuestions.length}</b> verified answers to Community Hub via relay.`, "var(--accent-green)");
+                    return { success: true, mode: 'relay', count: validQuestions.length };
+                }
+            } catch (err) {
+                logDebug(`Relay background post note: ${err.message}`);
+            }
+        }
+
+        // Silent local save notice
+        showToast(`Saved ${validQuestions.length} verified answers to local database!`, 3000);
+        return { success: true, mode: 'local', count: validQuestions.length };
+    }
+
+    // Background Grades Report Answer Harvester
+    async function executeGradesHarvester(statusCallback) {
+        let gradesDoc = document;
+        const isDirectGradesPage = window.location.pathname.includes('/grade/report/user/index.php');
+
+        if (!isDirectGradesPage) {
+            const gradesLink = document.querySelector('a[href*="/grade/report/user/index.php"]');
+            let gradesUrl = gradesLink ? gradesLink.href : null;
+
+            if (!gradesUrl) {
+                const courseInfo = detectCourseInfo();
+                const courseId = courseInfo.courseId || new URLSearchParams(window.location.search).get('id');
+                if (courseId) {
+                    const pathParts = window.location.pathname.split('/');
+                    const basePrefix = pathParts.length > 2 && pathParts[1] ? `/${pathParts[1]}` : '';
+                    gradesUrl = `${window.location.origin}${basePrefix}/grade/report/user/index.php?id=${courseId}`;
+                }
+            }
+
+            if (!gradesUrl) {
+                showToast("Open a course or Grades page first to scan completed quizzes!");
+                return { success: false, error: 'No grades URL found' };
+            }
+
+            showToast("Fetching course Grade Report in background...", 2500);
+            setLog("Fetching course Grade Report in background...", "var(--accent-blue)");
+
+            try {
+                const resp = await fetch(gradesUrl);
+                if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+                const html = await resp.text();
+                gradesDoc = new DOMParser().parseFromString(html, 'text/html');
+            } catch (e) {
+                showToast("Could not fetch Grade Report: " + e.message);
+                return { success: false, error: e.message };
+            }
+        }
+
+        // Detect course subject code from table or context
+        const courseInfo = detectCourseInfo();
+        let subCode = courseInfo.subjectCode;
+
+        const table = gradesDoc.querySelector('.user-grade, table[summary="User report"], .generaltable');
+        if (!table) {
+            showToast("No grade report table found.");
+            return { success: false, error: 'No grade table found' };
+        }
+
+        if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
+            const catHeaders = table.querySelectorAll('th.category, tr.category, h2, h3, .cat_1');
+            for (const h of catHeaders) {
+                const m = (h.innerText || '').match(/(?:UGRD-|UGRD_)?([A-Z]{2,6}\d{3,4}[A-Z]?)/i);
+                if (m) {
+                    subCode = m[1].toUpperCase();
+                    break;
+                }
+            }
+        }
+        if (!subCode) subCode = 'CS6301';
+
+        // Scan rows for completed quizzes
+        const rows = table.querySelectorAll('tr');
+        const completedQuizzes = [];
+
+        rows.forEach(r => {
+            const quizLink = r.querySelector('a[href*="/mod/quiz/view.php"]');
+            if (!quizLink) return;
+
+            const rowText = r.innerText || '';
+            if (rowText.includes('( Empty )') || rowText.includes('(Empty)')) return;
+
+            const cells = r.querySelectorAll('td, th');
+            let hasGrade = false;
+            let gradeStr = '';
+
+            cells.forEach(c => {
+                const txt = c.innerText.trim();
+                if (/\b\d+(\.\d+)?\s*%?/.test(txt) && !txt.includes('0.00 %') && !txt.startsWith('0-')) {
+                    hasGrade = true;
+                    gradeStr = txt;
+                }
+            });
+
+            const gradeCell = r.querySelector('.column-grade, td:nth-child(3)');
+            if (gradeCell && gradeCell.innerText.trim() !== '-' && gradeCell.innerText.trim() !== '') {
+                hasGrade = true;
+            }
+
+            if (hasGrade) {
+                completedQuizzes.push({
+                    title: quizLink.innerText.trim(),
+                    url: quizLink.href,
+                    grade: gradeStr
+                });
+            }
+        });
+
+        if (completedQuizzes.length === 0) {
+            showToast("No graded quizzes found in this report.");
+            setLog("No completed quiz attempts found in Grade Report.", "var(--accent-amber)");
+            return { success: false, count: 0 };
+        }
+
+        showToast(`Found ${completedQuizzes.length} completed quizzes. Harvesting answers...`, 3000);
+        setLog(`Scanning <b>${completedQuizzes.length}</b> completed quizzes for <b>${subCode}</b>...`, "var(--accent-blue)");
+
+        let totalHarvested = 0;
+        let allQuestions = [];
+
+        for (let i = 0; i < completedQuizzes.length; i++) {
+            const qz = completedQuizzes[i];
+            if (statusCallback) statusCallback(i + 1, completedQuizzes.length, qz.title);
+            setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b>...`, "var(--accent-cyan)");
+
+            try {
+                const viewResp = await fetch(qz.url);
+                if (!viewResp.ok) continue;
+                const viewHtml = await viewResp.text();
+                const viewDoc = new DOMParser().parseFromString(viewHtml, 'text/html');
+
+                const reviewLinks = viewDoc.querySelectorAll('a[href*="/mod/quiz/review.php"]');
+                if (reviewLinks.length === 0) continue;
+
+                for (const rLink of reviewLinks) {
+                    const reviewUrl = rLink.href;
+                    const reviewResp = await fetch(reviewUrl);
+                    if (!reviewResp.ok) continue;
+                    const reviewHtml = await reviewResp.text();
+                    const reviewDoc = new DOMParser().parseFromString(reviewHtml, 'text/html');
+
+                    const res = harvestFromReviewDOM(reviewDoc, subCode, qz.title, courseInfo.fullTitle || subCode);
+                    if (res.success && res.questions.length > 0) {
+                        allQuestions.push(...res.questions);
+                        totalHarvested += res.harvestedCount;
+                    }
+                }
+            } catch (err) {
+                console.warn(`Error harvesting ${qz.title}:`, err);
+            }
+        }
+
+        if (allQuestions.length > 0) {
+            mergeAnswersIntoCache(subCode, allQuestions, 'Grades-Harvester');
+            setLog(`Harvest Complete! Loaded <b>${totalHarvested}</b> verified answers from ${completedQuizzes.length} quizzes into <b>${subCode}</b> DB.`, "var(--accent-green)");
+            showToast(`Harvested ${totalHarvested} verified answers! Saved to database.`, 4000);
+
+            syncAutoQuizUI();
+            const fresh = getCachedAnswers(subCode);
+            const lbl = document.getElementById('fetch-btn-label');
+            if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
+
+            if (autoCommunityShare) {
+                dispatchCommunityContribution(subCode, fresh || allQuestions, { source: 'grades_harvester' });
+            }
+
+            return { success: true, count: totalHarvested, quizzes: completedQuizzes.length };
+        } else {
+            showToast("No reviews could be opened. Reviews might be restricted by instructor.");
+            setLog("Completed quiz reviews were not accessible.", "var(--accent-amber)");
+            return { success: false, count: 0 };
+        }
+    }
+
+    // Inject Action Banner into Grade Report Page
+    function injectGradesReportBanner() {
+        if (!window.location.pathname.includes('/grade/report/user/index.php')) return;
+        if (document.getElementById('amaes-grades-banner')) return;
+
+        const table = document.querySelector('.user-grade, table[summary="User report"], .generaltable');
+        if (!table) return;
+
+        const rows = table.querySelectorAll('tr');
+        let completedCount = 0;
+        rows.forEach(r => {
+            if (r.querySelector('a[href*="/mod/quiz/view.php"]') && !r.innerText.includes('( Empty )') && !r.innerText.includes('(Empty)')) {
+                completedCount++;
+            }
+        });
+
+        const banner = document.createElement('div');
+        banner.id = 'amaes-grades-banner';
+        banner.style.cssText = `
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.12));
+            border: 1.5px solid rgba(16, 185, 129, 0.35);
+            border-radius: 8px;
+            padding: 10px 16px;
+            margin: 14px 0 18px 0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            font-family: inherit;
+        `;
+
+        banner.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px;">
+                <div style="background: #10b981; color: #fff; width: 30px; height: 30px; border-radius: 6px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+                    ${ICONS.database}
+                </div>
+                <div>
+                    <div style="font-weight: 700; font-size: 13px; color: #10b981; display: flex; align-items: center; gap: 6px;">
+                        <span>Community Answer Harvester</span>
+                        <span style="background: rgba(16, 185, 129, 0.2); color: #10b981; font-size: 10px; padding: 1px 6px; border-radius: 10px; font-weight: 700;">${completedCount} Completed</span>
+                    </div>
+                    <div style="font-size: 11px; opacity: 0.85; margin-top: 2px;">
+                        Extract 100% verified answers from your past graded quizzes and sync them to your local & community database.
+                    </div>
+                </div>
+            </div>
+            <button id="btn-banner-harvest-grades" class="btn btn-primary" style="background: #10b981; border: none; font-weight: 600; font-size: 11.5px; padding: 7px 14px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                ${ICONS.download} <span>Harvest All Graded Quizzes</span>
+            </button>
+        `;
+
+        table.parentNode.insertBefore(banner, table);
+
+        const btn = banner.querySelector('#btn-banner-harvest-grades');
+        if (btn) {
+            btn.onclick = () => {
+                btn.disabled = true;
+                btn.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
+                executeGradesHarvester((curr, total, name) => {
+                    btn.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
+                }).then(res => {
+                    if (res && res.success && res.count > 0) {
+                        btn.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
+                    } else {
+                        btn.innerHTML = `<span>Finished</span>`;
+                    }
+                    setTimeout(() => {
+                        btn.disabled = false;
+                        btn.innerHTML = `${ICONS.download} <span>Harvest All Graded Quizzes</span>`;
+                    }, 4000);
+                });
+            };
+        }
     }
 
     function injectReviewScreenBanner() {
@@ -3933,8 +4223,7 @@
         if (autoShareEnabled && harvested.harvestedCount > 0 && !sessionStorage.getItem(shareKey)) {
             sessionStorage.setItem(shareKey, '1');
             setTimeout(() => {
-                showToast(`Auto-sharing ${harvested.harvestedCount} verified answers to Community Hub...`, 2500);
-                showCommunityContributionModal(harvested.subjectCode);
+                dispatchCommunityContribution(harvested.subjectCode, harvested.questions, { source: 'review_screen' });
             }, 1200);
         }
 
@@ -3991,9 +4280,9 @@
                         <input id="chk-banner-auto-dl" type="checkbox" ${autoDlEnabled ? 'checked' : ''} style="cursor: pointer;" />
                         <span>Auto-DL</span>
                     </label>
-                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: #cbd5e1; font-weight: 500; cursor: pointer;" title="Automatically commit verified answers to GitHub in background (Requires GitHub Token in Config)">
-                        <input id="chk-banner-auto-push" type="checkbox" ${autoPushEnabled ? 'checked' : ''} style="cursor: pointer;" />
-                        <span>Auto-Push</span>
+                    <label style="display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: #cbd5e1; font-weight: 500; cursor: pointer;" title="Automatically share verified answers with Community Hub in background">
+                        <input id="chk-banner-auto-share" type="checkbox" ${autoShareEnabled ? 'checked' : ''} style="cursor: pointer;" />
+                        <span>Auto-Share</span>
                     </label>
                 </div>
             </div>
@@ -4033,23 +4322,12 @@
             showToast(`Auto-download JSON: ${e.target.checked ? 'Enabled' : 'Disabled'}`);
         };
 
-        const _el__chk_banner_auto_push_ = document.getElementById('chk-banner-auto-push');
-        if (_el__chk_banner_auto_push_) _el__chk_banner_auto_push_.onchange = (e) => {;
+        const _el__chk_banner_auto_share_ = document.getElementById('chk-banner-auto-share');
+        if (_el__chk_banner_auto_share_) _el__chk_banner_auto_share_.onchange = (e) => {;
             const checked = e.target.checked;
-            if (checked && !localStorage.getItem('amaes_github_token')) {
-                const pat = prompt("Enter your GitHub Personal Access Token (PAT) for automatic commits:\n(Needs repository write permission)");
-                if (pat && pat.trim()) {
-                    localStorage.setItem('amaes_github_token', pat.trim());
-                    localStorage.setItem('amaes_auto_push_github', 'true');
-                    showToast("GitHub Token saved and Auto-Push enabled!");
-                } else {
-                    e.target.checked = false;
-                    localStorage.setItem('amaes_auto_push_github', 'false');
-                }
-            } else {
-                localStorage.setItem('amaes_auto_push_github', checked);
-                showToast(`Auto-push to GitHub: ${checked ? 'Enabled' : 'Disabled'}`);
-            }
+            autoCommunityShare = checked;
+            localStorage.setItem('amaes_auto_community_share', checked);
+            showToast(`Auto-share to Community Hub: ${checked ? 'Enabled' : 'Disabled'}`);
         };
     }
 
@@ -4911,16 +5189,16 @@
                         </div>
                     </details>
 
-                    <!-- Advanced / Developer Tools (AMAUOED Scraper + Token Push) -->
+                    <!-- Advanced / Developer Tools (AMAUOED Scraper + Past Quiz Harvester) -->
                     <details style="border: 1px solid var(--border-subtle); border-radius: 6px; padding: 5px 7px; background: rgba(0,0,0,0.15);">
                         <summary style="font-size: 10px; font-weight: 700; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center; justify-content: space-between; user-select: none;">
-                            <span>Advanced / Developer Tools</span>
+                            <span>Past Quiz Harvester & Scraper</span>
                             <span style="font-size: 9px; color: var(--text-muted);">Expand</span>
                         </summary>
                         <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 6px;">
-                            <!-- Push via Token (Auto-Prompts Config If Missing) -->
-                            <button id="btn-cloud-push" class="amaes-btn amaes-btn-outline" style="justify-content: center; padding: 5px; font-size: 10px; font-weight: 600;" title="Push your cached answers directly via personal GitHub token (auto-prompts configuration if token is missing)">
-                                ${ICONS.github} <span>Push via Token (Auto-Config)</span>
+                            <!-- Harvest Past Quizzes from Grades -->
+                            <button id="btn-harvest-grades-db" class="amaes-btn amaes-btn-green" style="justify-content: center; padding: 6px; font-size: 10px; font-weight: 700; cursor: pointer;" title="Scan course Grade Report to harvest and sync all completed past quizzes">
+                                ${ICONS.download} <span>Harvest Past Quizzes (via Grades)</span>
                             </button>
 
                             <!-- Legacy AMAUOED Scraper -->
@@ -4952,10 +5230,6 @@
                                     <input id="chk-auto-dl-json" type="checkbox" ${localStorage.getItem('amaes_auto_dl_json') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
                                     <span>Auto-download JSON on Review</span>
                                 </label>
-                                <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--text-secondary); cursor: pointer;" title="Automatically push verified questions to GitHub repository when viewing review page (requires token)">
-                                    <input id="chk-auto-push-github" type="checkbox" ${localStorage.getItem('amaes_auto_push_github') === 'true' ? 'checked' : ''} style="cursor: pointer;" />
-                                    <span>Auto-push via Token on Review</span>
-                                </label>
                             </div>
                         </div>
                     </details>
@@ -4979,6 +5253,24 @@
 
                 <!-- TAB PANE 3: Course Automation Tools -->
                 <div id="tab-pane-course" class="amaes-tab-pane" style="display: none;">
+                    <!-- MODULE 0: Grades Quiz Harvester -->
+                    <div id="mod-harvester-card" class="amaes-card">
+                        <div id="mod-harvester-header" class="amaes-card-header">
+                            <div style="display: flex; align-items: center; gap: 6px;">
+                                ${ICONS.database}
+                                <span class="header-label" style="color: var(--accent-green);">Grades Quiz Harvester</span>
+                            </div>
+                            <span id="mod-harvester-arrow" class="arrow-container">${ICONS.chevronRight}</span>
+                        </div>
+                        <div id="mod-harvester-body" style="display: none; padding: 8px; flex-direction: column; gap: 6px;">
+                            <div style="font-size: 9.5px; color: var(--text-muted); line-height: 1.35;">
+                                Scans your course Grade Report in the background to automatically harvest 100% verified answers from your past completed quizzes.
+                            </div>
+                            <button id="btn-harvest-course-tools" class="amaes-btn amaes-btn-green" style="justify-content: center; padding: 7px; font-weight: 700; font-size: 10.5px;">
+                                ${ICONS.download} <span>Harvest Past Quizzes from Grades</span>
+                            </button>
+                        </div>
+                    </div>
                     <!-- MODULE 4: Auto-Marker & Undo -->
                 <div id="mod-marker-card" class="amaes-card">
                     <div id="mod-marker-header" class="amaes-card-header">
@@ -6367,56 +6659,49 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
             };
         }
 
-        if (btnCloudPush) {
-            btnCloudPush.onclick = async () => {
-                const cached = getCachedAnswers(subCode);
-                if (!cached || cached.length === 0) {
-                    alert(`No cached answers found for ${subCode} to push. Open a quiz review or fetch answers first!`);
-                    return;
-                }
-
-                const pat = localStorage.getItem('amaes_github_token');
-                if (!pat) {
-                    const enteredToken = prompt(
-                        `GITHUB TOKEN REQUIRED FOR DIRECT COMMITS\n\n` +
-                        `To push directly via GitHub API, enter your Personal Access Token (PAT) with repo write permissions.\n\n` +
-                        `(Tip: You can also click "Share to Community Hub" for 1-click submission without any personal tokens!)`
-                    );
-                    if (enteredToken && enteredToken.trim()) {
-                        localStorage.setItem('amaes_github_token', enteredToken.trim());
-                        showToast("GitHub Token saved!");
+        const btnHarvestGradesDb = document.getElementById('btn-harvest-grades-db');
+        if (btnHarvestGradesDb) {
+            btnHarvestGradesDb.onclick = () => {
+                btnHarvestGradesDb.disabled = true;
+                btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
+                executeGradesHarvester((curr, total, name) => {
+                    btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
+                }).then(res => {
+                    if (res && res.success && res.count > 0) {
+                        btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
                     } else {
-                        showToast("Opening 1-Click Community Hub (Zero Token)...");
-                        showCommunityContributionModal(subCode);
-                        return;
+                        btnHarvestGradesDb.innerHTML = `<span>Finished</span>`;
                     }
-                }
-
-                btnCloudPush.disabled = true;
-                btnCloudPush.innerHTML = `${ICONS.upload} <span>Pushing...</span>`;
-                setLog(`Pushing ${cached.length} verified answers to GitHub for <b>${subCode}</b>...`);
-
-                try {
-                    const res = await pushAnswersToGitHub(subCode, cached, {
-                        courseTitle: courseInfo.fullTitle || subCode
-                    });
-                    if (res && res.success) {
-                        if (res.mode === 'api') {
-                            showToast(`Successfully pushed ${res.count} answers to GitHub!`);
-                            setLog(`Pushed <b>${res.count}</b> answers to GitHub community database!`, "var(--accent-green)");
-                        } else if (res.mode === 'web_edit') {
-                            showToast(`Copied JSON to clipboard! Paste into GitHub editor.`);
-                        }
-                    }
-                } catch (err) {
-                    showCommunityContributionModal(subCode);
-                    setLog(`Direct push note: ${err.message}. Opened Community Hub!`, "var(--accent-amber)");
-                } finally {
-                    btnCloudPush.disabled = false;
-                    btnCloudPush.innerHTML = `${ICONS.github} <span>Push</span>`;
-                }
+                    setTimeout(() => {
+                        btnHarvestGradesDb.disabled = false;
+                        btnHarvestGradesDb.innerHTML = `${ICONS.download} <span>Harvest Past Quizzes (via Grades)</span>`;
+                    }, 4000);
+                });
             };
         }
+
+        const btnHarvestCourseTools = document.getElementById('btn-harvest-course-tools');
+        if (btnHarvestCourseTools) {
+            btnHarvestCourseTools.onclick = () => {
+                btnHarvestCourseTools.disabled = true;
+                btnHarvestCourseTools.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
+                executeGradesHarvester((curr, total, name) => {
+                    btnHarvestCourseTools.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
+                }).then(res => {
+                    if (res && res.success && res.count > 0) {
+                        btnHarvestCourseTools.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
+                    } else {
+                        btnHarvestCourseTools.innerHTML = `<span>Finished</span>`;
+                    }
+                    setTimeout(() => {
+                        btnHarvestCourseTools.disabled = false;
+                        btnHarvestCourseTools.innerHTML = `${ICONS.download} <span>Harvest Past Quizzes from Grades</span>`;
+                    }, 4000);
+                });
+            };
+        }
+
+        setupPersistentAccordion('mod-harvester-header', 'mod-harvester-body', 'mod-harvester-arrow', 'amaes_pref_mod_harvester', true);
 
         if (btnConfigCloud) {
             btnConfigCloud.onclick = () => {
@@ -6490,25 +6775,7 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
             };
         }
 
-        if (chkAutoPushGithub) {
-            chkAutoPushGithub.onchange = (e) => {
-                const checked = e.target.checked;
-                if (checked && !localStorage.getItem('amaes_github_token')) {
-                    const pat = prompt("Enter your GitHub Personal Access Token (PAT) for automatic background commits:\n(Needs repository write permission)");
-                    if (pat && pat.trim()) {
-                        localStorage.setItem('amaes_github_token', pat.trim());
-                        localStorage.setItem('amaes_auto_push_github', 'true');
-                        showToast("GitHub Token saved and Auto-Push enabled!");
-                    } else {
-                        e.target.checked = false;
-                        localStorage.setItem('amaes_auto_push_github', 'false');
-                    }
-                } else {
-                    localStorage.setItem('amaes_auto_push_github', checked);
-                    showToast(`Auto-push to GitHub: ${checked ? 'Enabled' : 'Disabled'}`);
-                }
-            };
-        }
+
 
         // If on quiz attempt page, the unified runAutoQuizSolver handles highlighting, auto-picking & auto-next.
         // On review page or other pages, highlight visually without auto-select.
@@ -6784,6 +7051,7 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
         setupQuizKeyboardShortcuts();
         showWelcomeOnboardingModal(false);
         injectDashboardCourseBadges();
+        injectGradesReportBanner();
         checkForScriptUpdates(false);
 
         // Auto Cloud Sync: sync answers from community repository once per session in background

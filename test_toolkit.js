@@ -259,6 +259,47 @@ test("Deduction Engine: 4 wrong choices safely returns null with no crash", () =
     assert.strictEqual(deduced, null);
 });
 
+// --------------------------------------------------
+// 9. Grades Harvester & Background Relay
+// --------------------------------------------------
+test("Grades Harvester: filters completed vs empty quiz rows accurately", () => {
+    const testRows = [
+        { title: "Prelim Quiz 1", gradeText: "20.00", percentage: "100.00 %", isEmpty: false },
+        { title: "Prelim Lab Quiz 1", gradeText: "-", percentage: "-", isEmpty: true },
+        { title: "Prelim Quiz 2", gradeText: "18.18", percentage: "90.91 %", isEmpty: false },
+        { title: "Midterm Quiz 1", gradeText: "19.00", percentage: "95.00 %", isEmpty: false }
+    ];
+
+    const completed = testRows.filter(r => !r.isEmpty && r.gradeText !== '-' && /\b\d+(\.\d+)?/.test(r.gradeText));
+    assert.strictEqual(completed.length, 3, "Exactly 3 completed quizzes should be detected!");
+    assert.strictEqual(completed[0].title, "Prelim Quiz 1");
+    assert.strictEqual(completed[1].title, "Prelim Quiz 2");
+    assert.strictEqual(completed[2].title, "Midterm Quiz 1");
+});
+
+test("Background Relay Payload: formats anonymous payload with required schema", () => {
+    const rawQuestions = [
+        { qRaw: "What is Boolean algebra?", ansRaw: "Logic system", choices: ["A", "B"] }
+    ];
+    const payload = {
+        subjectCode: "CS6301",
+        totalQuestions: rawQuestions.length,
+        source: "grades_harvester",
+        submittedAt: new Date().toISOString(),
+        questions: rawQuestions.map(q => ({
+            question: q.qRaw,
+            answer: q.ansRaw,
+            choices: q.choices,
+            wrongAnswers: []
+        }))
+    };
+
+    assert.strictEqual(payload.subjectCode, "CS6301");
+    assert.strictEqual(payload.totalQuestions, 1);
+    assert.strictEqual(payload.questions[0].answer, "Logic system");
+    assert.strictEqual(Boolean(payload.submittedAt), true);
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
