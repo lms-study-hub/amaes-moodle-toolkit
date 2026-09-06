@@ -284,65 +284,108 @@
         const req = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest :
                     (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
 
-        const handleSuccess = (responseText) => {
+        const processRemoteVersion = (remoteVer) => {
             localStorage.setItem('amaes_last_update_check', String(now));
-            const versionMatch = responseText.match(/@version\s+([0-9.]+)/);
-            if (versionMatch && versionMatch[1]) {
-                const remoteVer = versionMatch[1].trim();
-                localStorage.setItem('amaes_latest_version_seen', remoteVer);
+            localStorage.setItem('amaes_latest_version_seen', remoteVer);
 
-                if (isNewerVersion(remoteVer, SCRIPT_VERSION)) {
-                    renderUpdateNotice(remoteVer);
-                    setLog(`Update found: <b>v${remoteVer}</b> is available! Opening installer...`, 'var(--accent-green)');
-                    showToast(`Update found: v${remoteVer} is available!`, 4000);
-                    if (manual) {
-                        try {
-                            window.open(SCRIPT_RAW_URL, '_blank');
-                        } catch (e) {
-                            window.location.href = SCRIPT_RAW_URL;
-                        }
+            if (isNewerVersion(remoteVer, SCRIPT_VERSION)) {
+                renderUpdateNotice(remoteVer);
+                setLog(`Update found: <b>v${remoteVer}</b> is available! Opening installer...`, 'var(--accent-green)');
+                showToast(`Update found: v${remoteVer} is available!`, 4000);
+                if (manual) {
+                    try {
+                        window.open(SCRIPT_RAW_URL, '_blank');
+                    } catch (e) {
+                        window.location.href = SCRIPT_RAW_URL;
                     }
-                    if (callback) callback({ status: 'update_available', version: remoteVer });
-                } else {
-                    if (manual) {
-                        setLog(`Toolkit is up to date (<b>${SCRIPT_VERSION}</b>).`, 'var(--accent-green)');
-                        showToast(`Toolkit is up to date (${SCRIPT_VERSION})`);
-                    }
-                    if (callback) callback({ status: 'up_to_date', version: SCRIPT_VERSION });
                 }
+                if (callback) callback({ status: 'update_available', version: remoteVer });
             } else {
-                if (manual) setLog("Unable to verify update header.", "var(--accent-amber)");
-                if (callback) callback({ status: 'error', message: 'Could not parse version' });
+                if (manual) {
+                    setLog(`Toolkit is up to date (<b>${SCRIPT_VERSION}</b>).`, 'var(--accent-green)');
+                    showToast(`Toolkit is up to date (${SCRIPT_VERSION})`);
+                }
+                if (callback) callback({ status: 'up_to_date', version: SCRIPT_VERSION });
             }
         };
 
+        const checkViaRawUrl = () => {
+            const rawUrl = `${SCRIPT_RAW_URL}?_t=${now}`;
+            const parseRaw = (text) => {
+                const m = text.match(/@version\s+([0-9.]+)/);
+                if (m && m[1]) {
+                    processRemoteVersion(m[1].trim());
+                } else {
+                    if (manual) setLog("Unable to verify update header.", "var(--accent-amber)");
+                    if (callback) callback({ status: 'error', message: 'Could not parse version' });
+                }
+            };
+
+            if (req) {
+                try {
+                    req({
+                        method: 'GET',
+                        url: rawUrl,
+                        headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache' },
+                        onload: (res) => parseRaw(res.responseText || ''),
+                        onerror: (err) => {
+                            logDebug("Raw update check error:", err);
+                            if (manual) setLog("Network error checking updates.", "var(--accent-red)");
+                            if (callback) callback({ status: 'error', error: err });
+                        }
+                    });
+                } catch (e) {
+                    if (manual) setLog("Exception checking updates.", "var(--accent-red)");
+                    if (callback) callback({ status: 'error', error: e });
+                }
+            } else {
+                fetch(rawUrl, { cache: 'no-store' })
+                    .then(r => r.text())
+                    .then(parseRaw)
+                    .catch(err => {
+                        logDebug("Fetch update error:", err);
+                        if (manual) setLog("Network error checking updates.", "var(--accent-red)");
+                        if (callback) callback({ status: 'error', error: err });
+                    });
+            }
+        };
+
+        // Query GitHub API Releases first for instantaneous 0-delay tag detection
+        const apiUrl = `https://api.github.com/repos/lms-study-hub/amaes-moodle-toolkit/releases/latest?_t=${now}`;
         if (req) {
             try {
                 req({
                     method: 'GET',
-                    url: `${SCRIPT_RAW_URL}?_t=${now}`,
-                    headers: { 'Cache-Control': 'no-cache' },
-                    onload: (res) => handleSuccess(res.responseText || ''),
-                    onerror: (err) => {
-                        logDebug("Auto-update check network error:", err);
-                        if (manual) setLog("Network error checking updates.", "var(--accent-red)");
-                        if (callback) callback({ status: 'error', error: err });
-                    }
+                    url: apiUrl,
+                    headers: { 'Accept': 'application/vnd.github.v3+json', 'Cache-Control': 'no-cache' },
+                    onload: (res) => {
+                        try {
+                            const data = JSON.parse(res.responseText || '{}');
+                            if (data && data.tag_name) {
+                                const ver = data.tag_name.replace(/^v/i, '').trim();
+                                processRemoteVersion(ver);
+                                return;
+                            }
+                        } catch (e) {}
+                        checkViaRawUrl();
+                    },
+                    onerror: () => checkViaRawUrl()
                 });
             } catch (e) {
-                logDebug("Update request exception:", e.message);
-                if (manual) setLog("Exception checking updates.", "var(--accent-red)");
-                if (callback) callback({ status: 'error', error: e });
+                checkViaRawUrl();
             }
         } else {
-            fetch(`${SCRIPT_RAW_URL}?_t=${now}`, { cache: 'no-store' })
-                .then(r => r.text())
-                .then(handleSuccess)
-                .catch(err => {
-                    logDebug("Fetch update error:", err);
-                    if (manual) setLog("Network error checking updates.", "var(--accent-red)");
-                    if (callback) callback({ status: 'error', error: err });
-                });
+            fetch(apiUrl, { cache: 'no-store' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.tag_name) {
+                        const ver = data.tag_name.replace(/^v/i, '').trim();
+                        processRemoteVersion(ver);
+                    } else {
+                        checkViaRawUrl();
+                    }
+                })
+                .catch(() => checkViaRawUrl());
         }
     }
 
