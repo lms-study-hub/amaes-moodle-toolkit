@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.1
+// @version      1.2.2
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.1";
+    const SCRIPT_VERSION = "v1.2.2";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -406,8 +406,8 @@
     let autoQuizMode = localStorage.getItem('amaes_auto_quiz_mode') === 'true'; // default false (Master autonomous switch)
     let quizPersonality = localStorage.getItem('amaes_quiz_personality') || 'passive'; // 'passive' | 'aggressive'
     let autoPickQuiz = localStorage.getItem('amaes_auto_pick_quiz') === 'true'; // default false (Safe companion mode)
-    let autoNextQuiz = localStorage.getItem('amaes_auto_next_quiz') === 'true'; // default false (No aggressive jumps)
-    let autoSubmitQuiz = localStorage.getItem('amaes_auto_submit_quiz') === 'true'; // default false (No aggressive submits)
+    let autoNextQuiz = localStorage.getItem('amaes_auto_next_quiz') !== 'false'; // default true: auto-next when questions on page are answered
+    let autoSubmitQuiz = localStorage.getItem('amaes_auto_submit_quiz') !== 'false'; // default true: auto-submit to review screen
     let autoNextTimer = null;
     let pageLoadSolverTimer = null;
     let smartSkipQuiz = localStorage.getItem('amaes_smart_skip_quiz') !== 'false'; // default true: skip answered questions
@@ -511,8 +511,8 @@
         localStorage.setItem('amaes_auto_quiz_mode', 'false');
         localStorage.setItem('amaes_quiz_personality', 'passive');
         localStorage.setItem('amaes_auto_pick_quiz', 'false');
-        localStorage.setItem('amaes_auto_next_quiz', 'false');
-        localStorage.setItem('amaes_auto_submit_quiz', 'false');
+        localStorage.setItem('amaes_auto_next_quiz', 'true');
+        localStorage.setItem('amaes_auto_submit_quiz', 'true');
         localStorage.setItem('amaes_auto_dl_json', 'false');
         localStorage.setItem('amaes_auto_push_github', 'false');
         localStorage.setItem('amaes_auto_copy_search', 'true');
@@ -529,8 +529,8 @@
         autoQuizMode = false;
         quizPersonality = 'passive';
         autoPickQuiz = false;
-        autoNextQuiz = false;
-        autoSubmitQuiz = false;
+        autoNextQuiz = true;
+        autoSubmitQuiz = true;
         smartSkipQuiz = true;
         autoHighlightQuiz = true;
         autoCopyQuizForAI = true;
@@ -560,8 +560,8 @@
         updateCheck('chk-ai-prompt-hint', true);
         updateCheck('chk-keyboard-shortcuts', true);
         updateCheck('chk-auto-pick', false);
-        updateCheck('chk-auto-next', false);
-        updateCheck('chk-auto-submit', false);
+        updateCheck('chk-auto-next', true);
+        updateCheck('chk-auto-submit', true);
         updateCheck('chk-auto-dl-json', false);
         updateCheck('chk-auto-push-github', false);
 
@@ -573,8 +573,8 @@
         updateCheck('welcome-chk-copy', true);
         updateCheck('welcome-chk-skip', true);
         updateCheck('welcome-chk-hotkeys', true);
-        updateCheck('welcome-chk-next', false);
-        updateCheck('welcome-chk-submit', false);
+        updateCheck('welcome-chk-next', true);
+        updateCheck('welcome-chk-submit', true);
         updateCheck('welcome-chk-dl', false);
 
         const btnPassive = document.getElementById('btn-personality-passive');
@@ -1499,9 +1499,117 @@
         return btn;
     }
 
+    // Check whether every question on the current attempt page has an answer selected/entered
+    function areAllPageQuestionsAnswered() {
+        const queList = document.querySelectorAll('.que');
+        if (queList.length === 0) return false;
+
+        for (const que of queList) {
+            // 1. Radio: check if any radio in question is checked
+            const radios = que.querySelectorAll('.answer input[type="radio"]');
+            if (radios.length > 0) {
+                const anyChecked = Array.from(radios).some(r => r.checked);
+                if (!anyChecked) return false;
+                continue;
+            }
+
+            // 2. Checkbox: check if any checkbox in question is checked
+            const checkboxes = que.querySelectorAll('.answer input[type="checkbox"]');
+            if (checkboxes.length > 0) {
+                const anyChecked = Array.from(checkboxes).some(c => c.checked);
+                if (!anyChecked) return false;
+                continue;
+            }
+
+            // 3. Select dropdowns (matching questions)
+            const selects = que.querySelectorAll('select');
+            if (selects.length > 0) {
+                const allSelected = Array.from(selects).every(s => s.value && s.value !== '0' && s.value !== '');
+                if (!allSelected) return false;
+                continue;
+            }
+
+            // 4. Text input / textarea (shortanswer questions)
+            const textInputs = que.querySelectorAll('input[type="text"].form-control, input.form-control, textarea');
+            if (textInputs.length > 0) {
+                const allFilled = Array.from(textInputs).every(inp => inp.value && inp.value.trim().length > 0);
+                if (!allFilled) return false;
+                continue;
+            }
+
+            // 5. Moodle state classes
+            if (que.classList.contains('answered') || que.classList.contains('complete')) {
+                continue;
+            }
+
+            // Fallback: unrecognized question type with no checked answer
+            return false;
+        }
+
+        return true;
+    }
+
+    // Schedule automatic advancement to next page (or summary) after question(s) on current page are answered
+    function scheduleAutoNextAfterAnswer(delayMs = 800) {
+        if (!autoNextQuiz) return;
+        if (!checkIsQuizAttemptPage()) return;
+        if (!areAllPageQuestionsAnswered()) return;
+
+        const nextBtn = findQuizNextButton();
+        if (!nextBtn) return;
+
+        const btnText = (nextBtn.value || nextBtn.innerText || '').toLowerCase();
+        const isFinish = btnText.includes('finish') || btnText.includes('submit');
+
+        clearTimeout(autoNextTimer);
+
+        if (isFinish) {
+            setLog("<b>All Questions Answered!</b> Advancing to summary in <b>1.0s</b>...", "var(--accent-green)");
+            showToast("All questions answered! Advancing to summary in 1s...", 1500);
+        } else {
+            setLog("<b>Question Answered:</b> Advancing to next page in <b>0.8s</b>...", "var(--accent-blue)");
+            showToast("Answer selected! Advancing to next page...", 1200);
+        }
+
+        autoNextTimer = setTimeout(() => {
+            if (!autoNextQuiz) return;
+            clickQuizNextButton(nextBtn, true);
+        }, delayMs);
+    }
+
+    // Bind event listeners to question inputs to trigger auto-next immediately when choices are selected
+    function setupQuizAnswerListeners() {
+        if (!checkIsQuizAttemptPage()) return;
+        const inputs = document.querySelectorAll(
+            '.que .answer input[type="radio"], .que .answer input[type="checkbox"], .que select'
+        );
+        inputs.forEach(inp => {
+            if (inp.dataset.amaesAutoNextBound) return;
+            inp.dataset.amaesAutoNextBound = 'true';
+            inp.addEventListener('change', () => {
+                if (autoNextQuiz) {
+                    scheduleAutoNextAfterAnswer(inp.type === 'checkbox' ? 1200 : 800);
+                }
+            });
+        });
+
+        const textInputs = document.querySelectorAll(
+            '.que input[type="text"].form-control, .que input.form-control, .que textarea'
+        );
+        textInputs.forEach(inp => {
+            if (inp.dataset.amaesAutoNextBound) return;
+            inp.dataset.amaesAutoNextBound = 'true';
+            inp.addEventListener('blur', () => {
+                if (autoNextQuiz && inp.value && inp.value.trim().length > 0) {
+                    scheduleAutoNextAfterAnswer(1000);
+                }
+            });
+        });
+    }
+
     // Fail-safe click & smart navigation executor (skips already-answered questions)
-    function clickQuizNextButton(btn) {
-        if (!autoQuizMode) {
+    function clickQuizNextButton(btn, forceAllow = false) {
+        if (!autoQuizMode && !forceAllow && !autoNextQuiz) {
             logDebug("Blocked clickQuizNextButton: Auto-Quiz is PAUSED.");
             return false;
         }
@@ -1772,7 +1880,7 @@
                     formulation.insertBefore(hud, formulation.firstChild);
                 }
 
-                // Listen for user selecting a choice: show visual confirmation, but LEAVE NEXT CLICK TO USER
+                // Listen for user selecting a choice: show visual confirmation and auto-advance if enabled
                 const inputElements = firstBlockedQue.querySelectorAll('input[type="radio"], input[type="checkbox"], input[type="text"]');
                 const onUserPickedChoice = () => {
                     firstBlockedQue.style.outline = '2px solid #10b981';
@@ -1787,13 +1895,17 @@
                                 <span style="background: #10b981; color: #ffffff; padding: 3px 8px; border-radius: 5px; font-weight: 800; font-size: 10px;">READY</span>
                                 <div>
                                     <div style="font-weight: 700; color: #065f46;">Answer selected!</div>
-                                    <div style="color: #047857; font-size: 11px;">Press <b>N</b> or click <b>Next page</b> below to proceed.</div>
+                                    <div style="color: #047857; font-size: 11px;">${autoNextQuiz ? 'Advancing to next page automatically...' : 'Press <b>N</b> or click <b>Next page</b> below to proceed.'}</div>
                                 </div>
                             </div>
                         `;
                     }
-                    showToast("Answer picked! Press N or click Next page.");
-                    setLog("Answer selected! Press <b>N</b> or click <b>Next page</b> below to proceed.", "var(--accent-green)");
+                    if (autoNextQuiz) {
+                        scheduleAutoNextAfterAnswer(800);
+                    } else {
+                        showToast("Answer picked! Press N or click Next page.");
+                        setLog("Answer selected! Press <b>N</b> or click <b>Next page</b> below to proceed.", "var(--accent-green)");
+                    }
                 };
 
                 inputElements.forEach(inp => {
@@ -1818,9 +1930,22 @@
     function handleQuizSummaryAutoSubmit() {
         if (!checkIsQuizSummaryPage()) return;
 
-        // STRICT CHECK: Only auto-submit if Auto-Quiz is actively running AND auto-submit is enabled
-        if (!autoQuizMode || !autoSubmitQuiz) {
-            logDebug("Quiz Summary auto-submit paused because Auto-Quiz Mode is OFF.");
+        // Auto-submit if autoSubmitQuiz is enabled
+        if (!autoSubmitQuiz) {
+            logDebug("Quiz Summary auto-submit paused because Auto-Submit Quiz is disabled.");
+            return;
+        }
+
+        // Safety check: ensure questions were answered in summary table
+        const summaryRows = Array.from(document.querySelectorAll('.quizsummarytable tr, #region-main .summarytable tr'));
+        const incompleteRows = summaryRows.filter(tr => {
+            const statusCell = tr.querySelector('.status');
+            return statusCell && /not yet answered|not answered|incomplete/i.test(statusCell.innerText);
+        });
+
+        if (incompleteRows.length > 0 && quizPersonality !== 'aggressive' && !autoQuizMode) {
+            setLog(`<b>Quiz Summary:</b> ${incompleteRows.length} question(s) not answered yet. Paused for review.`, "var(--accent-amber)");
+            showToast(`Paused: ${incompleteRows.length} unanswered question(s). Click Submit manually if ready.`, 4000);
             return;
         }
 
@@ -1829,17 +1954,17 @@
         );
 
         if (submitBtn) {
-            setLog("<b>Auto-Mark as Done:</b> Submitting quiz attempt in <b>1.2s</b>...", "var(--accent-green)");
-            showToast("Auto-Submitting quiz attempt...", 3000);
+            setLog("<b>Auto-Next to Review:</b> Submitting quiz attempt in <b>1.0s</b> to open review...", "var(--accent-green)");
+            showToast("All answers saved! Submitting to review in 1s...", 2500);
 
             setTimeout(() => {
-                if (!autoQuizMode || !autoSubmitQuiz) return;
+                if (!autoSubmitQuiz) return;
                 submitBtn.scrollIntoView({ behavior: 'smooth', block: 'center' });
                 submitBtn.click();
 
                 // Handle Moodle confirmation modal dialogue
                 const confirmInterval = setInterval(() => {
-                    if (!autoQuizMode || !autoSubmitQuiz) {
+                    if (!autoSubmitQuiz) {
                         clearInterval(confirmInterval);
                         return;
                     }
@@ -1848,13 +1973,13 @@
                     );
                     if (modalBtn) {
                         clearInterval(confirmInterval);
-                        setLog("Confirming final quiz submission...", "var(--accent-green)");
+                        setLog("Confirming final submission to reach review screen...", "var(--accent-green)");
                         modalBtn.click();
                     }
                 }, 300);
 
                 setTimeout(() => clearInterval(confirmInterval), 6000);
-            }, 1200);
+            }, 1000);
         }
     }
 
@@ -2060,6 +2185,9 @@
                     inputElements[idx].click();
                     showToast(`Auto-selected Option ${letter} from AI clipboard`);
                     setLog(`AI Paste: Selected Option <b>${letter}</b> from clipboard`, "var(--accent-green)");
+                    if (autoNextQuiz) {
+                        scheduleAutoNextAfterAnswer(800);
+                    }
                     return;
                 }
             }
@@ -2098,6 +2226,9 @@
                 bestInput.click();
                 showToast(`Auto-selected ${bestLabel} from AI text match`);
                 setLog(`AI Paste: Auto-matched choice <b>${bestLabel}</b> from clipboard`, "var(--accent-green)");
+                if (autoNextQuiz) {
+                    scheduleAutoNextAfterAnswer(800);
+                }
             } else {
                 showToast("Could not match AI response to any option. Select manually.");
                 setLog("AI Paste: Clipboard did not clearly match any choice.", "var(--accent-amber)");
@@ -2212,6 +2343,9 @@
                         const choiceLabel = key >= '1' && key <= '9' ? String.fromCharCode(65 + optIndex) : key;
                         showToast(`Shortcut: Selected Choice ${choiceLabel}`);
                         setLog(`Keyboard shortcut: Selected choice <b>${choiceLabel}</b>`, "var(--accent-blue)");
+                        if (autoNextQuiz) {
+                            scheduleAutoNextAfterAnswer(800);
+                        }
                     }
                 }
             }
@@ -3409,6 +3543,7 @@
 
         if (checkIsQuizAttemptPage()) {
             injectQuizFloatingHUD();
+            setupQuizAnswerListeners();
 
             // Auto-minimize toolkit panel to floating smart pill if enabled
             if (autoMinimizeQuiz) {
@@ -3440,6 +3575,7 @@
                     }
                 }
                 triggerAutoCopyForAI();
+                setupQuizAnswerListeners();
             }, 400);
         }
 
@@ -3447,12 +3583,15 @@
             setTimeout(handleQuizSummaryAutoSubmit, 600);
         }
 
-        // Debounced observer: NEVER blindly calls triggerAutoCopyForAI
+        // Debounced observer: updates buttons, answer listeners, and review banner
         const observer = new MutationObserver(() => {
             clearTimeout(observerDebounceTimer);
             observerDebounceTimer = setTimeout(() => {
                 injectQuestionCopyButtons();
                 injectReviewScreenBanner();
+                if (checkIsQuizAttemptPage()) {
+                    setupQuizAnswerListeners();
+                }
             }, 300);
         });
 
@@ -4396,13 +4535,27 @@
         if (!checkIsReviewPage()) return;
         if (document.getElementById('amaes-review-banner')) return;
 
+        const urlParams = new URLSearchParams(window.location.search);
+        const attemptId = urlParams.get('attempt') || 'review';
+
+        // Check for multi-page review pagination: expand to show all questions on one page if available
+        const showAllLink = document.querySelector('a[href*="review.php"][href*="showall=1"], a[href*="showall=true"]');
+        if (showAllLink && !window.location.search.includes('showall=1') && !sessionStorage.getItem(`amaes_expanded_review_${attemptId}`)) {
+            sessionStorage.setItem(`amaes_expanded_review_${attemptId}`, '1');
+            setLog("<b>Multi-page Review:</b> Expanding full quiz to review and harvest all questions on one page...", "var(--accent-blue)");
+            showToast("Expanding full quiz review for complete answer harvest...", 2000);
+            window.location.href = showAllLink.href;
+            return;
+        }
+
         const harvested = harvestReviewAnswers();
         if (!harvested || !harvested.success || (harvested.harvestedCount === 0 && (harvested.eliminatedCount || 0) === 0)) return;
 
         // Auto-save verified answers and eliminated wrong choices to local subject cache
         const cacheRes = mergeAnswersIntoCache(harvested.subjectCode, harvested.questions, 'Review');
 
-        setLog(`Review Harvested: <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices saved for <b>${harvested.subjectCode}</b>!`, "var(--accent-green)");
+        setLog(`<b>Quiz Review Checked:</b> Extracted <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices for <b>${harvested.subjectCode}</b>. Database updated!`, "var(--accent-green)");
+        showToast(`Review Checked: Harvested ${harvested.harvestedCount} verified answers & ${harvested.eliminatedCount || 0} wrong choices!`, 4000);
 
         const autoDlEnabled = localStorage.getItem('amaes_auto_dl_json') === 'true';
         const autoPushEnabled = localStorage.getItem('amaes_auto_push_github') === 'true';
@@ -4410,8 +4563,6 @@
         const hasGithubToken = Boolean(localStorage.getItem('amaes_github_token'));
 
         // Prevent repeated auto-actions on refresh using sessionStorage attempt keys
-        const urlParams = new URLSearchParams(window.location.search);
-        const attemptId = urlParams.get('attempt') || harvested.quizTitle;
         const dlKey = `amaes_autodl_${attemptId}`;
         const pushKey = `amaes_autopush_${attemptId}`;
         const shareKey = `amaes_autoshare_${attemptId}`;
@@ -5035,6 +5186,11 @@
 
                         <!-- Explanatory Pro-Tips Cards -->
                         <div style="display: flex; flex-direction: column; gap: 5px; font-size: 10.5px; color: var(--text-secondary, #cbd5e1);">
+                            <div style="display: flex; align-items: center; gap: 7px; background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); padding: 5px 8px; border-radius: 5px;">
+                                <span style="font-weight: 800; color: #34d399; font-size: 10px; background: rgba(16,185,129,0.25); padding: 2px 6px; border-radius: 3px; flex-shrink: 0;">AUTO</span>
+                                <span><b>Auto-Next to Review:</b> Picking an answer auto-advances pages, submits to review, and immediately checks & harvests answers to your database!</span>
+                            </div>
+
                             <div style="display: flex; align-items: center; gap: 7px; background: rgba(0,0,0,0.25); padding: 5px 8px; border-radius: 5px;">
                                 <div style="display: flex; gap: 3px; flex-shrink: 0;">
                                     <kbd style="background: var(--surface, #334155); color: #fff; padding: 2px 6px; border-radius: 3px; font-weight: 700; font-size: 10px; border: 1px solid rgba(255,255,255,0.2); font-family: monospace;">N</kbd>
@@ -5455,17 +5611,17 @@
                             <input id="chk-auto-pick" type="checkbox" ${autoPickQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Auto-Pick verified answers from DB</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after all verified questions on this page are answered">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="When checked, automatically advances to next page after all questions on this page are answered">
                             <input id="chk-auto-next" type="checkbox" ${autoNextQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-Next page</span>
+                            <span>Auto-Next page (after answering)</span>
                         </label>
                         <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-blue); cursor: pointer; font-weight: 600;" title="Smart Navigation: Bypass questions already answered by auto-answer and jump straight to unanswered questions">
                             <input id="chk-smart-skip" type="checkbox" ${smartSkipQuiz ? 'checked' : ''} style="cursor: pointer;" />
                             <span>Smart Skip: Jump directly to unanswered questions</span>
                         </label>
-                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-pink); cursor: pointer; font-weight: 600;" title="Automatically click 'Submit all and finish' on quiz summary review screen">
+                        <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: var(--accent-pink); cursor: pointer; font-weight: 600;" title="Automatically click 'Submit all and finish' on quiz summary to load review and harvest answers">
                             <input id="chk-auto-submit" type="checkbox" ${autoSubmitQuiz ? 'checked' : ''} style="cursor: pointer;" />
-                            <span>Auto-Mark as Done (Auto-Submit Quiz)</span>
+                            <span>Auto-Submit to Review (Check & Harvest Answers)</span>
                         </label>
                         <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px;">
                             <label style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #a78bfa; cursor: pointer; font-weight: 600;" title="Keyboard shortcuts: Space / N for Next page, C for Copy AI, V for Paste AI, P for Pause/Start, 1-4 / A-D to pick choices">
@@ -5497,6 +5653,7 @@
                             <span style="font-size: 9px; color: var(--text-muted);">No Mouse Needed</span>
                         </div>
                         <div style="display: flex; flex-direction: column; gap: 3px;">
+                            <div>• <b>Auto-Next to Review:</b> Picking an answer automatically advances pages and submits to review to check & harvest verified data!</div>
                             <div>• <b>Next Page:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">N</kbd> or <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">Space</kbd> instead of scrolling to click Next!</div>
                             <div>• <b>Pick Choice:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">1</kbd>-<kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">4</kbd> (or <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">A</kbd>-<kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">D</kbd>) instead of clicking radio circles!</div>
                             <div>• <b>AI Solve:</b> Press <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">C</kbd> to copy for AI, then <kbd style="background: var(--surface, #334155); color:#fff; padding:1px 4px; border-radius:3px; border:1px solid rgba(255,255,255,0.2); font-family:monospace; font-size:9px;">V</kbd> to auto-select the answer!</div>

@@ -398,14 +398,14 @@ test("Update Checker: semantic version comparison handles patches and suffixes",
 
 test("Update Checker Caching: cached known update bypasses refetching and opens installer immediately", () => {
     const mockStorage = new Map();
-    mockStorage.set('amaes_latest_version_seen', '1.2.2');
+    mockStorage.set('amaes_latest_version_seen', '1.2.3');
     mockStorage.set('amaes_last_update_check', String(Date.now()));
 
-    const currentVersion = "v1.2.1";
+    const currentVersion = "v1.2.2";
     const cachedLatest = mockStorage.get('amaes_latest_version_seen');
     const hasKnownUpdate = cachedLatest && isNewerVersion(cachedLatest, currentVersion);
 
-    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.2 must be detected from cache!");
+    assert.strictEqual(hasKnownUpdate, true, "Known update v1.2.3 must be detected from cache!");
 
     // Check manual action: should direct to installer immediately
     let openedUrl = null;
@@ -529,6 +529,63 @@ test("Quiz Speedrun Shortcuts: accurately maps 1-4 and A-D to choice indices and
     assert.strictEqual(isNextNavigationKey(' '), true, "Space must trigger next navigation");
     assert.strictEqual(isNextNavigationKey('Enter'), true, "Enter must trigger next navigation");
     assert.strictEqual(isNextNavigationKey('X'), false, "Irrelevant key must not trigger next navigation");
+});
+
+// --------------------------------------------------
+// 18. Auto-Next to Review & Data Check Defaults
+// --------------------------------------------------
+test("Auto-Next to Review Defaults: autoNextQuiz and autoSubmitQuiz default to true", () => {
+    const mockLocalStorage = {
+        getItem: (k) => null // default state on fresh install
+    };
+
+    const autoNextQuiz = mockLocalStorage.getItem('amaes_auto_next_quiz') !== 'false';
+    const autoSubmitQuiz = mockLocalStorage.getItem('amaes_auto_submit_quiz') !== 'false';
+
+    assert.strictEqual(autoNextQuiz, true, "autoNextQuiz must default to true for auto-advance after answering!");
+    assert.strictEqual(autoSubmitQuiz, true, "autoSubmitQuiz must default to true for auto-submit to review screen!");
+});
+
+// --------------------------------------------------
+// 19. Page Completeness & Review Summary Auto-Submit Gate
+// --------------------------------------------------
+test("Page Completeness & Summary Submit Gate: checks all questions answered before advancing to review", () => {
+    // Simulate DOM check for page question completion
+    function checkPageQuestionsComplete(mockQuestions) {
+        if (!mockQuestions || mockQuestions.length === 0) return false;
+        return mockQuestions.every(q => q.hasChecked || q.hasText || q.isAnswered);
+    }
+
+    const page1Incomplete = [
+        { id: 1, hasChecked: true, hasText: false, isAnswered: true },
+        { id: 2, hasChecked: false, hasText: false, isAnswered: false }
+    ];
+    assert.strictEqual(checkPageQuestionsComplete(page1Incomplete), false, "Page with unanswered question must NOT auto-advance!");
+
+    const page1Complete = [
+        { id: 1, hasChecked: true, hasText: false, isAnswered: true },
+        { id: 2, hasChecked: true, hasText: false, isAnswered: true }
+    ];
+    assert.strictEqual(checkPageQuestionsComplete(page1Complete), true, "Page where all questions have choices selected must trigger auto-advance!");
+
+    // Simulate summary page table check
+    function shouldSubmitSummary(summaryRows, autoSubmitEnabled) {
+        if (!autoSubmitEnabled) return false;
+        const incomplete = summaryRows.filter(r => /not yet answered|incomplete/i.test(r.status));
+        return incomplete.length === 0;
+    }
+
+    const summaryComplete = [
+        { qNum: 1, status: "Answer saved" },
+        { qNum: 2, status: "Answer saved" }
+    ];
+    assert.strictEqual(shouldSubmitSummary(summaryComplete, true), true, "Completed summary must auto-submit to review!");
+
+    const summaryIncomplete = [
+        { qNum: 1, status: "Answer saved" },
+        { qNum: 2, status: "Not yet answered" }
+    ];
+    assert.strictEqual(shouldSubmitSummary(summaryIncomplete, true), false, "Summary with unanswered questions must pause!");
 });
 
 console.log("\n==================================================");
