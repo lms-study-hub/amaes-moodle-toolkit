@@ -552,16 +552,16 @@ test("Quiz Speedrun Shortcuts: accurately maps 1-4 and A-D to choice indices and
 // --------------------------------------------------
 // 18. Auto-Next to Review & Data Check Defaults
 // --------------------------------------------------
-test("Auto-Next to Review Defaults: autoNextQuiz and autoSubmitQuiz default to true", () => {
+test("Auto-Next & Manual Review Submission Defaults: autoNextQuiz is true, autoSubmitQuiz is false", () => {
     const mockLocalStorage = {
         getItem: (k) => null // default state on fresh install
     };
 
     const autoNextQuiz = mockLocalStorage.getItem('amaes_auto_next_quiz') !== 'false';
-    const autoSubmitQuiz = mockLocalStorage.getItem('amaes_auto_submit_quiz') !== 'false';
+    const autoSubmitQuiz = mockLocalStorage.getItem('amaes_auto_submit_quiz') === 'true';
 
     assert.strictEqual(autoNextQuiz, true, "autoNextQuiz must default to true for auto-advance after answering!");
-    assert.strictEqual(autoSubmitQuiz, true, "autoSubmitQuiz must default to true for auto-submit to review screen!");
+    assert.strictEqual(autoSubmitQuiz, false, "autoSubmitQuiz must default to false so quiz submit is not forced on user!");
 });
 
 // --------------------------------------------------

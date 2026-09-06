@@ -450,7 +450,7 @@
     let quizPersonality = localStorage.getItem('amaes_quiz_personality') || 'passive'; // 'passive' | 'aggressive'
     let autoPickQuiz = localStorage.getItem('amaes_auto_pick_quiz') === 'true'; // default false (Safe companion mode)
     let autoNextQuiz = localStorage.getItem('amaes_auto_next_quiz') !== 'false'; // default true: auto-next when questions on page are answered
-    let autoSubmitQuiz = localStorage.getItem('amaes_auto_submit_quiz') !== 'false'; // default true: auto-submit to review screen
+    let autoSubmitQuiz = localStorage.getItem('amaes_auto_submit_quiz') === 'true'; // default false: safe manual review before final submission
     let autoNextTimer = null;
     let pageLoadSolverTimer = null;
     let smartSkipQuiz = localStorage.getItem('amaes_smart_skip_quiz') !== 'false'; // default true: skip answered questions
@@ -555,7 +555,7 @@
         localStorage.setItem('amaes_quiz_personality', 'passive');
         localStorage.setItem('amaes_auto_pick_quiz', 'false');
         localStorage.setItem('amaes_auto_next_quiz', 'true');
-        localStorage.setItem('amaes_auto_submit_quiz', 'true');
+        localStorage.setItem('amaes_auto_submit_quiz', 'false');
         localStorage.setItem('amaes_auto_dl_json', 'false');
         localStorage.setItem('amaes_auto_push_github', 'false');
         localStorage.setItem('amaes_auto_copy_search', 'true');
@@ -575,7 +575,7 @@
         quizPersonality = 'passive';
         autoPickQuiz = false;
         autoNextQuiz = true;
-        autoSubmitQuiz = true;
+        autoSubmitQuiz = false;
         smartSkipQuiz = true;
         autoHighlightQuiz = true;
         autoCopyQuizForAI = true;
@@ -606,7 +606,7 @@
         updateCheck('chk-keyboard-shortcuts', true);
         updateCheck('chk-auto-pick', false);
         updateCheck('chk-auto-next', true);
-        updateCheck('chk-auto-submit', true);
+        updateCheck('chk-auto-submit', false);
         updateCheck('chk-auto-dl-json', false);
         updateCheck('chk-auto-push-github', false);
 
@@ -619,7 +619,7 @@
         updateCheck('welcome-chk-skip', true);
         updateCheck('welcome-chk-hotkeys', true);
         updateCheck('welcome-chk-next', true);
-        updateCheck('welcome-chk-submit', true);
+        updateCheck('welcome-chk-submit', false);
         updateCheck('welcome-chk-dl', false);
 
         const btnPassive = document.getElementById('btn-personality-passive');
@@ -4445,19 +4445,47 @@
         logDebug(`Dispatching ${validQuestions.length} answers to community relay...`);
 
         if (communityRelayUrl) {
-            try {
-                const resp = await fetch(communityRelayUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(payload)
-                });
-                if (resp.ok) {
-                    showToast(`Auto-shared ${validQuestions.length} verified answers to Community Hub!`);
-                    setLog(`Auto-shared <b>${validQuestions.length}</b> verified answers to Community Hub via relay.`, "var(--accent-green)");
-                    return { success: true, mode: 'relay', count: validQuestions.length };
+            const gmReq = (typeof GM_xmlhttpRequest !== 'undefined') ? GM_xmlhttpRequest :
+                          (typeof GM !== 'undefined' && GM.xmlHttpRequest) ? GM.xmlHttpRequest : null;
+
+            if (gmReq) {
+                try {
+                    gmReq({
+                        method: 'POST',
+                        url: communityRelayUrl,
+                        headers: { 'Content-Type': 'application/json' },
+                        data: JSON.stringify(payload),
+                        onload: (res) => {
+                            if (res.status >= 200 && res.status < 300) {
+                                showToast(`Auto-shared ${validQuestions.length} verified answers to Global Database!`);
+                                setLog(`Auto-shared <b>${validQuestions.length}</b> verified answers to Global Database via relay.`, "var(--accent-green)");
+                            } else {
+                                logDebug(`Community relay response status: ${res.status}`);
+                            }
+                        },
+                        onerror: (err) => {
+                            logDebug("GM relay post error:", err);
+                        }
+                    });
+                    return { success: true, mode: 'relay_gm', count: validQuestions.length };
+                } catch (gmErr) {
+                    logDebug(`GM relay exception: ${gmErr.message}`);
                 }
-            } catch (err) {
-                logDebug(`Relay background post note: ${err.message}`);
+            } else {
+                try {
+                    const resp = await fetch(communityRelayUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (resp.ok) {
+                        showToast(`Auto-shared ${validQuestions.length} verified answers to Global Database!`);
+                        setLog(`Auto-shared <b>${validQuestions.length}</b> verified answers to Global Database via relay.`, "var(--accent-green)");
+                        return { success: true, mode: 'relay', count: validQuestions.length };
+                    }
+                } catch (err) {
+                    logDebug(`Relay background post note: ${err.message}`);
+                }
             }
         }
 
@@ -4761,7 +4789,7 @@
         }
 
         // 3. Auto-Share to Community Hub (Default: ON)
-        if (autoShareEnabled && harvested.harvestedCount > 0 && !sessionStorage.getItem(shareKey)) {
+        if (autoShareEnabled && (harvested.harvestedCount > 0 || (harvested.eliminatedCount || 0) > 0) && !sessionStorage.getItem(shareKey)) {
             sessionStorage.setItem(shareKey, '1');
             setTimeout(() => {
                 dispatchCommunityContribution(harvested.subjectCode, harvested.questions, { source: 'review_screen' });
