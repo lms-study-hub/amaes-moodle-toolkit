@@ -1035,6 +1035,16 @@
         return text.trim();
     }
 
+    // Helper to unscript unicode superscript and subscript digits to standard digits
+    function unscriptDigits(str) {
+        if (!str) return '';
+        const map = {
+            '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9',
+            '₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9'
+        };
+        return str.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]/g, ch => map[ch] || ch);
+    }
+
     function normalizeChoice(str) {
         if (!str) return '';
         const doc = new DOMParser().parseFromString(str, 'text/html');
@@ -1046,6 +1056,7 @@
         text = text.replace(/^select one:?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
         text = text.replace(/\s+/g, ' ');
         text = text.replace(/[.:?!;,]+$/, '');
+        text = unscriptDigits(text);
         return text.trim();
     }
 
@@ -2485,15 +2496,7 @@
                 const input = row.querySelector('input[type="radio"], input[type="checkbox"]');
                 
                 // Extract clean text without badges
-                let rawText = '';
-                if (row.querySelector('.amaes-verified-badge, .amaes-eliminated-badge')) {
-                    const clone = label.cloneNode(true);
-                    clone.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint').forEach(b => b.remove());
-                    rawText = clone.innerText;
-                } else {
-                    rawText = label.innerText;
-                }
-                const choiceText = normalizeChoice(rawText);
+                const choiceText = normalizeChoice(cleanDOMToAI(label));
 
                 // 1. Check against verified candidate answers
                 for (const cand of candidates) {
@@ -3118,8 +3121,8 @@
         if (!rootNode) return '';
         const clone = rootNode.cloneNode(true);
 
-        // Strip non-content scripts & toolkit buttons
-        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-shortans-hint, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn').forEach(el => el.remove());
+        // Strip non-content scripts, toolkit buttons & all injected UI badges
+        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn').forEach(el => el.remove());
 
         // Convert Superscripts (e.g. 2^3 -> 2³, x^2 -> x², or ^{complex})
         clone.querySelectorAll('sup').forEach(sup => {

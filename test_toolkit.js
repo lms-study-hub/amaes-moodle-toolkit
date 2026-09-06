@@ -27,6 +27,15 @@ function test(name, fn) {
 // --------------------------------------------------
 // 1. Choice Normalization & Negative Sign Integrity
 // --------------------------------------------------
+function unscriptDigits(str) {
+    if (!str) return '';
+    const map = {
+        '⁰':'0','¹':'1','²':'2','³':'3','⁴':'4','⁵':'5','⁶':'6','⁷':'7','⁸':'8','⁹':'9',
+        '₀':'0','₁':'1','₂':'2','₃':'3','₄':'4','₅':'5','₆':'6','₇':'7','₈':'8','₉':'9'
+    };
+    return str.replace(/[⁰¹²³⁴⁵⁶⁷⁸⁹₀₁₂₃₄₅₆₇₈₉]/g, ch => map[ch] || ch);
+}
+
 function normalizeChoice(str) {
     if (!str) return '';
     let text = str.toLowerCase().trim();
@@ -34,6 +43,7 @@ function normalizeChoice(str) {
     text = text.replace(/^select one:?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
     text = text.replace(/\s+/g, ' ');
     text = text.replace(/[.:?!;,]+$/, '');
+    text = unscriptDigits(text);
     return text.trim();
 }
 
@@ -56,6 +66,14 @@ test("Choice Normalization: complex choice prefixes stripped without stripping m
     assert.strictEqual(normalizeChoice("a) True"), "true");
     assert.strictEqual(normalizeChoice("d. X = AB"), "x = ab");
     assert.strictEqual(normalizeChoice("b. X = ABC"), "x = abc");
+});
+
+test("Choice Normalization: superscripts and subscripts normalize to standard digits", () => {
+    assert.strictEqual(normalizeChoice("(110)²"), "(110)2");
+    assert.strictEqual(normalizeChoice("(110)₂"), "(110)2");
+    assert.strictEqual(normalizeChoice("(124)₂"), "(124)2");
+    assert.strictEqual(normalizeChoice("(000)₂"), "(000)2");
+    assert.strictEqual(normalizeChoice("(110)²"), normalizeChoice("(110)₂"));
 });
 
 // --------------------------------------------------
