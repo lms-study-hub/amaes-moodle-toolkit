@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.7
+// @version      1.3.8
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.7";
+    const SCRIPT_VERSION = "v1.3.8";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -543,6 +543,7 @@
         chevronDown: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>`,
         cloud: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>`,
         cloudDownload: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 13v8l-4-4"/><path d="m12 21 4-4"/><path d="M4.393 15.269A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/></svg>`,
+        cloudUpload: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>`,
         upload: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>`,
         share: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>`,
         camera: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3z"/><circle cx="12" cy="13" r="3"/></svg>`,
@@ -1138,9 +1139,24 @@
 
     function normalizeChoice(str) {
         if (!str) return '';
-        const doc = new DOMParser().parseFromString(str, 'text/html');
-        let text = doc.body.textContent || '';
+        let text = str;
+        if (typeof DOMParser !== 'undefined' && /<[a-z][\s\S]*>/i.test(str)) {
+            try {
+                const doc = new DOMParser().parseFromString(str, 'text/html');
+                const imgs = doc.body.querySelectorAll('img');
+                let extracted = doc.body.textContent || '';
+                if (!extracted.trim() && imgs.length > 0) {
+                    extracted = Array.from(imgs).map(img => {
+                        const m = (img.src || '').match(/\/pluginfile\.php\/\d+\/question\/(?:answer|questiontext|feedback)\/\d+(?:\/\d+)?\/([^?#\s]+)/i);
+                        return img.alt || (m ? `[moodle-asset:${m[1]}]` : img.src) || '';
+                    }).join(' ');
+                }
+                text = extracted || str;
+            } catch (_) {}
+        }
         text = text.toLowerCase().trim();
+        // Normalize Moodle pluginfile image URLs to stable image asset tokens across quiz attempts
+        text = text.replace(/https?:\/\/[^\/]+\/pluginfile\.php\/\d+\/question\/(?:answer|questiontext|feedback)\/\d+(?:\/\d+)?\/([^?#\s]+)/gi, '[moodle-asset:$1]');
         // Normalize unicode dashes/minus signs to standard hyphen
         text = text.replace(/[\u2212\u2013\u2014]/g, '-');
         // Remove prefix like "select one: ", "select one or more: ", "a. ", "b) " safely without stripping negative signs
@@ -4066,12 +4082,15 @@
             }
         });
 
-        // Convert images into markdown links with alt text
+        // Convert images into markdown links with alt text & cross-attempt normalized tokens
         clone.querySelectorAll('img').forEach(img => {
             const src = img.src || img.getAttribute('data-src') || '';
             const alt = (img.alt || '').trim();
             if (src) {
-                const imgText = alt ? `[Image: ${alt} - ${src}]` : `[Image: ${src}]`;
+                const moodleImgMatch = src.match(/\/pluginfile\.php\/\d+\/question\/(?:answer|questiontext|feedback)\/\d+(?:\/\d+)?\/([^?#\s]+)/i);
+                const assetName = moodleImgMatch ? moodleImgMatch[1] : '';
+                const cleanSrc = (moodleImgMatch && assetName) ? `[moodle-asset:${assetName}]` : src;
+                const imgText = alt ? `[Image: ${alt} - ${cleanSrc}]` : `[Image: ${cleanSrc}]`;
                 img.replaceWith(document.createTextNode(`\n${imgText}\n`));
             } else {
                 img.remove();
@@ -5962,7 +5981,7 @@
                         cursor: default;
                     `;
                     pill.title = `Correct answer "${ansText}" saved locally and uploaded to Global Community DB!`;
-                    pill.innerHTML = `${ICONS.cloudUpload} <span>${isDeduced ? 'Deduced & Uploaded' : 'Uploaded to DB'}</span>`;
+                    pill.innerHTML = `${ICONS.cloudUpload || ICONS.cloud} <span>${isDeduced ? 'Deduced & Uploaded' : 'Uploaded to DB'}</span>`;
                 } else {
                     pill.style.cssText = `
                         display: inline-flex;
@@ -6009,7 +6028,7 @@
                     `;
                     banner.innerHTML = `
                         <div style="display: flex; align-items: center; gap: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
-                            ${isCloudSharingOn ? ICONS.cloudUpload : ICONS.database}
+                            ${isCloudSharingOn ? (ICONS.cloudUpload || ICONS.cloud) : ICONS.database}
                             <span><b>${isDeduced ? 'Deduced' : 'Verified'} Answer:</b> &ldquo;${escapeHtml(ansText)}&rdquo;</span>
                         </div>
                         <span style="font-size: 10px; padding: 2px 7px; border-radius: 4px; font-weight: 700; white-space: nowrap; background: ${isCloudSharingOn ? 'rgba(16, 185, 129, 0.25)' : 'rgba(59, 130, 246, 0.25)'};">

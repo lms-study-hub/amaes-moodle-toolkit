@@ -1985,6 +1985,49 @@ test("AI Prompt Contradiction Safety: eliminates debunked choices from detected 
     assert.ok(script.includes("validCandidates"), "Userscript must filter out debunked candidates before setting detectedAnswer");
 });
 
+// --------------------------------------------------
+// 60. Icon Registry Integrity
+// --------------------------------------------------
+test("Icon Registry Integrity: all ICONS accessed in codebase are defined in ICONS dictionary (no undefined icons like cloudUpload)", () => {
+    const fs = require('fs');
+    const code = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    const iconsMatch = code.match(/const ICONS = \{([\s\S]*?)\n    \};/);
+    assert.ok(iconsMatch, "ICONS dictionary must exist in userscript");
+    const iconKeys = [...iconsMatch[1].matchAll(/([a-zA-Z0-9_]+)\s*:/g)].map(m => m[1]);
+    assert.ok(iconKeys.includes("cloudUpload"), "ICONS must include cloudUpload");
+
+    const used = [...code.matchAll(/ICONS\.([a-zA-Z0-9_]+)/g)].map(m => m[1]);
+    const missing = [...new Set(used.filter(k => !iconKeys.includes(k)))];
+    assert.deepStrictEqual(missing, [], `All accessed ICONS must be defined. Missing: ${missing.join(', ')}`);
+});
+
+// --------------------------------------------------
+// 61. Image Choice Normalization Across Attempts
+// --------------------------------------------------
+test("Image Choice Normalization: normalizes Moodle dynamic pluginfile URLs so image choices match across different quiz attempts", () => {
+    function normalizeMoodleChoice(str) {
+        let text = str.toLowerCase().trim();
+        text = text.replace(/https?:\/\/[^\/]+\/pluginfile\.php\/\d+\/question\/(?:answer|questiontext|feedback)\/\d+(?:\/\d+)?\/([^?#\s]+)/gi, '[moodle-asset:$1]');
+        text = text.replace(/^select (?:one or more choices?|one or more|all that apply|one):?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
+        return text.trim();
+    }
+
+    const reviewAttemptUrl = "https://semestral.amaes.com/pluginfile.php/12345/question/answer/67890/1/computer.jpg";
+    const newAttemptUrl = "https://semestral.amaes.com/pluginfile.php/99999/question/answer/88888/1/computer.jpg";
+
+    const normalizedReview = normalizeMoodleChoice(`[Image: ${reviewAttemptUrl}]`);
+    const normalizedNew = normalizeMoodleChoice(`a. [Image: ${newAttemptUrl}]`);
+
+    assert.strictEqual(normalizedReview, "[image: [moodle-asset:computer.jpg]]");
+    assert.strictEqual(normalizedNew, "[image: [moodle-asset:computer.jpg]]");
+    assert.strictEqual(normalizedReview, normalizedNew, "Choice from review must match choice on new attempt regardless of pluginfile attempt ID");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("moodle-asset:"), "Userscript must contain moodle-asset normalization token");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
