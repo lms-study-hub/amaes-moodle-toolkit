@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.3
+// @version      1.3.4
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.3";
+    const SCRIPT_VERSION = "v1.3.4";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2056,7 +2056,8 @@
                 const hasVerifiedBadge = que.querySelector('.amaes-verified-badge');
                 const hasShortAnsHint = que.querySelector('.amaes-shortans-hint');
                 const hasSelectHint = que.querySelector('.amaes-select-hint');
-                if (!hasVerifiedBadge && !hasShortAnsHint && !hasSelectHint) {
+                const hasDragHint = que.querySelector('.amaes-drag-hint');
+                if (!hasVerifiedBadge && !hasShortAnsHint && !hasSelectHint && !hasDragHint) {
                     unverifiedQuestions.push(que);
                 }
             });
@@ -2166,7 +2167,7 @@
                 }
 
                 // Listen for user selecting a choice: show visual confirmation and auto-advance if enabled
-                const inputElements = firstBlockedQue.querySelectorAll('input[type="radio"], input[type="checkbox"], input[type="text"], select');
+                const inputElements = firstBlockedQue.querySelectorAll('input[type="radio"], input[type="checkbox"], input[type="text"], select, .draghome, .drop, input.placeinput');
                 const onUserPickedChoice = () => {
                     firstBlockedQue.style.outline = '2px solid #10b981';
                     const hud = firstBlockedQue.querySelector('.amaes-blockage-hud');
@@ -2195,6 +2196,7 @@
 
                 inputElements.forEach(inp => {
                     inp.addEventListener('change', onUserPickedChoice);
+                    inp.addEventListener('click', onUserPickedChoice);
                     if (inp.type === 'text') {
                         inp.addEventListener('blur', onUserPickedChoice);
                     }
@@ -2482,6 +2484,71 @@
                     }
                 }
 
+                // Check for Drag and Drop questions (ddwtos, ddimageortext, ddmarker)
+                const dragHomes = Array.from(targetQue.querySelectorAll('.draghome, .dragitems .draghome, .drags .drag, .drags span, span.draghome, .dragboxes .drag, .dragitem'));
+                const dropZones = Array.from(targetQue.querySelectorAll('.drop, .dropzone, span.droptarget, .droppable'));
+                if (dragHomes.length > 0 && dropZones.length > 0) {
+                    const cleanedAnswer = cleanText
+                        .replace(/^Answer:\s*/i, '')
+                        .replace(/^The correct answer is:\s*/i, '')
+                        .replace(/^["']|["']$/g, '')
+                        .trim();
+
+                    // Extract answers per blank
+                    let answersForBlanks = [];
+                    const blankMatches = cleanedAnswer.match(/Blank\s*\d+\s*[:\-–]\s*([^\n,;]+)/gi);
+                    if (blankMatches && blankMatches.length > 0) {
+                        answersForBlanks = blankMatches.map(m => m.replace(/Blank\s*\d+\s*[:\-–]\s*/i, '').trim());
+                    } else if (cleanedAnswer.includes('\n')) {
+                        answersForBlanks = cleanedAnswer.split('\n').map(l => l.replace(/^[a-z0-9][.)]\s*/i, '').trim()).filter(Boolean);
+                    } else if (cleanedAnswer.includes(',') && dropZones.length > 1) {
+                        answersForBlanks = cleanedAnswer.split(',').map(s => s.trim()).filter(Boolean);
+                    } else {
+                        answersForBlanks = [cleanedAnswer];
+                    }
+
+                    let placedCount = 0;
+                    dropZones.forEach((dz, idx) => {
+                        const ans = answersForBlanks[idx] || (dropZones.length === 1 ? answersForBlanks[0] : null);
+                        if (!ans) return;
+
+                        const normAns = normalizeChoice(ans);
+                        const matchingDrag = dragHomes.find(dh => {
+                            const dText = normalizeChoice(cleanDOMToAI(dh));
+                            return dText === normAns || (normAns.length > 1 && dText.includes(normAns)) || (dText.length > 1 && normAns.includes(dText));
+                        });
+
+                        if (matchingDrag) {
+                            const hiddenInput = targetQue.querySelector(`input.placeinput.place${idx + 1}, input[name$="_p${idx + 1}"], input[name*="_p${idx + 1}"]`) || targetQue.querySelectorAll('input.placeinput, input[type="hidden"][name*="_p"]')[idx];
+                            const choiceClass = Array.from(matchingDrag.classList).find(c => /^(?:choice|c)(\d+)$/i.test(c));
+                            let choiceNum = choiceClass ? choiceClass.replace(/^[^\d]+/, '') : String(dragHomes.indexOf(matchingDrag) + 1);
+
+                            if (hiddenInput && choiceNum) {
+                                hiddenInput.value = choiceNum;
+                                hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                hiddenInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                            }
+
+                            matchingDrag.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                            dz.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                            dz.innerText = ans;
+                            dz.style.outline = '2px solid #10b981';
+                            dz.style.fontWeight = '700';
+                            placedCount++;
+                        }
+                    });
+
+                    if (placedCount > 0) {
+                        showToast(`Pasted to Drag & Drop: Placed ${placedCount} item(s)`);
+                        setLog(`AI Paste: Placed <b>${placedCount}</b> drag-and-drop item(s) from clipboard`, "var(--accent-green)");
+                        if (autoNextQuiz) {
+                            scheduleAutoNextAfterAnswer(1000);
+                        }
+                        return;
+                    }
+                }
+
                 showToast("No answer inputs found for this question");
                 return;
             }
@@ -2721,9 +2788,9 @@
             const qtextElem = que.querySelector('.qtext, .formulation .qtext');
             if (!qtextElem) return;
 
-            // Clone qtext and remove input, select, textarea, and badges so inline blanks match AMAUOED entries cleanly
+            // Clone qtext and remove input, select, textarea, drop zones, and badges so inline blanks match AMAUOED entries cleanly
             const qClone = qtextElem.cloneNode(true);
-            qClone.querySelectorAll('input, select, textarea, .amaes-shortans-hint, .amaes-select-hint, .amaes-verified-badge, .amaes-probability-hint').forEach(el => el.remove());
+            qClone.querySelectorAll('input, select, textarea, .drop, .draghome, .drags, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-verified-badge, .amaes-probability-hint').forEach(el => el.remove());
             const moodleQRaw = qClone.innerText.trim();
             const moodleQNorm = normalizeText(moodleQRaw);
 
@@ -2771,7 +2838,12 @@
                 sel.style.backgroundColor = '';
                 sel.style.borderRadius = '';
             });
-            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint').forEach(b => b.remove());
+            que.querySelectorAll('.draghome, .dragitems .draghome, .drags .drag, .drags span, span.draghome, .dragboxes .drag, .dragitem, .drop, .dropzone, span.droptarget').forEach(el => {
+                el.style.outline = '';
+                el.style.backgroundColor = '';
+                el.style.borderRadius = '';
+            });
+            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint').forEach(b => b.remove());
 
             // Compile all eliminated wrong choices known for this question
             const allWrongList = [];
@@ -3303,6 +3375,127 @@
                 }
             }
 
+            // Handle Drag and Drop into text / onto image questions (ddwtos, ddimageortext, ddmarker)
+            if (!foundMatchForQuestion) {
+                const dragHomes = Array.from(que.querySelectorAll('.draghome, .dragitems .draghome, .drags .drag, .drags span, span.draghome, .dragboxes .drag, .dragitem'));
+                const dropZones = Array.from(que.querySelectorAll('.drop, .dropzone, span.droptarget, .droppable'));
+
+                if (dragHomes.length > 0 && dropZones.length > 0 && candidates.length > 0) {
+                    const bestCand = candidates[0];
+                    const bestAnswer = bestCand.ansRaw || bestCand.answer || '';
+                    const isAmauoed = Boolean((bestCand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(bestCand.sources) && bestCand.sources.some(s => s.toLowerCase().includes('amauoed'))));
+                    const sourceColor = isAmauoed ? '#0284c7' : '#10b981';
+                    const sourceBg = isAmauoed ? 'rgba(2, 132, 199, 0.1)' : 'rgba(16, 185, 129, 0.1)';
+                    const sourceTitle = isAmauoed ? 'Suggested (amauoed.com):' : 'Suggested (Verified DB):';
+
+                    let candAnswers = (bestCand.answers && bestCand.answers.length > 0)
+                        ? bestCand.answers
+                        : (bestAnswer.includes(',') && dropZones.length > 1 ? bestAnswer.split(',').map(s => s.trim()) : [bestAnswer]);
+
+                    let matchedAnyDrag = false;
+
+                    dropZones.forEach((dropZone, idx) => {
+                        let targetAns = candAnswers[idx] || (dropZones.length === 1 ? candAnswers[0] : bestAnswer) || '';
+                        targetAns = targetAns.replace(/^Blank\s*\d+\s*[:\-–]\s*/i, '').trim();
+                        if (!targetAns) return;
+
+                        const normTarget = normalizeChoice(targetAns);
+                        const matchingDrag = dragHomes.find(dh => {
+                            const dText = normalizeChoice(cleanDOMToAI(dh));
+                            return dText === normTarget || (normTarget.length > 1 && dText.includes(normTarget)) || (dText.length > 1 && normTarget.includes(dText));
+                        });
+
+                        if (matchingDrag) {
+                            matchedAnyDrag = true;
+                            matchingDrag.style.outline = `2.5px solid ${sourceColor}`;
+                            matchingDrag.style.backgroundColor = sourceBg;
+                            matchingDrag.style.borderRadius = '4px';
+
+                            dropZone.style.outline = `2px dashed ${sourceColor}`;
+                            dropZone.style.backgroundColor = sourceBg;
+                            dropZone.style.borderRadius = '4px';
+
+                            let hint = que.querySelector(`.amaes-drag-hint[data-drop-idx="${idx}"]`);
+                            if (!hint) {
+                                hint = document.createElement('div');
+                                hint.className = 'amaes-drag-hint';
+                                hint.setAttribute('data-drop-idx', String(idx));
+                                hint.innerHTML = `
+                                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                        <span><span style="color:${sourceColor}; font-weight:700;">${sourceTitle}</span> Blank [${idx + 1}]: <b>${targetAns}</b></span>
+                                        <button type="button" class="amaes-drag-btn" style="
+                                            background: ${sourceColor};
+                                            color: #ffffff;
+                                            border: none;
+                                            border-radius: 4px;
+                                            padding: 2px 7px;
+                                            font-size: 10px;
+                                            font-weight: 700;
+                                            cursor: pointer;
+                                            display: inline-flex;
+                                            align-items: center;
+                                            gap: 3px;
+                                            white-space: nowrap;
+                                            box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                                        ">${ICONS.zap} Place</button>
+                                    </div>
+                                `;
+                                hint.style.cssText = `font-size: 11px; margin-top: 5px; margin-bottom: 3px; padding: 5px 9px; background: ${sourceBg}; border-left: 3px solid ${sourceColor}; border-radius: 4px; cursor: pointer; transition: background 0.15s;`;
+                                hint.title = `Click to place "${targetAns}" into Blank ${idx + 1}`;
+
+                                const placeFn = (e) => {
+                                    if (e) {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                    }
+                                    const hiddenInput = que.querySelector(`input.placeinput.place${idx + 1}, input[name$="_p${idx + 1}"], input[name*="_p${idx + 1}"]`) || que.querySelectorAll('input.placeinput, input[type="hidden"][name*="_p"]')[idx];
+                                    const choiceClass = Array.from(matchingDrag.classList).find(c => /^(?:choice|c)(\d+)$/i.test(c));
+                                    let choiceNum = choiceClass ? choiceClass.replace(/^[^\d]+/, '') : String(dragHomes.indexOf(matchingDrag) + 1);
+
+                                    if (hiddenInput && choiceNum) {
+                                        hiddenInput.value = choiceNum;
+                                        hiddenInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                        hiddenInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                        hiddenInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                                    }
+
+                                    matchingDrag.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    dropZone.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+                                    dropZone.innerText = targetAns;
+                                    dropZone.style.outline = `2px solid ${sourceColor}`;
+                                    dropZone.style.fontWeight = '700';
+
+                                    showToast(`Placed: ${targetAns}`);
+                                    hint.style.background = 'rgba(16, 185, 129, 0.2)';
+                                    const btn = hint.querySelector('.amaes-drag-btn');
+                                    if (btn) btn.innerText = '✓ Placed';
+                                };
+
+                                hint.onclick = placeFn;
+                                const placeBtn = hint.querySelector('.amaes-drag-btn');
+                                if (placeBtn) placeBtn.onclick = placeFn;
+
+                                if (dropZone.parentElement && dropZone.parentElement !== que) {
+                                    dropZone.parentElement.appendChild(hint);
+                                } else {
+                                    dropZone.insertAdjacentElement('afterend', hint);
+                                }
+
+                                // Auto-place when autoPickQuiz is enabled or auto-quiz is running
+                                const canAutoPick = autoPickQuiz || (autoSelect && (autoQuizMode || isManualSelect));
+                                if (canAutoPick) {
+                                    placeFn();
+                                }
+                            }
+                        }
+                    });
+
+                    if (matchedAnyDrag) {
+                        foundMatchForQuestion = true;
+                    }
+                }
+            }
+
             if (foundMatchForQuestion) matchedCount++;
         });
 
@@ -3778,7 +3971,7 @@
         const clone = rootNode.cloneNode(true);
 
         // Strip non-content scripts, toolkit buttons & all injected UI badges
-        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn').forEach(el => el.remove());
+        clone.querySelectorAll('script, style, noscript, .amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint, .amaes-shortans-hint, .amaes-select-hint, .amaes-drag-hint, .amaes-blockage-hud, .amaes-copy-ai-card-btn, .amaes-copy-img-card-btn').forEach(el => el.remove());
 
         // Convert Superscripts (e.g. 2^3 -> 2³, x^2 -> x², or ^{complex})
         clone.querySelectorAll('sup').forEach(sup => {
@@ -3828,6 +4021,15 @@
             } else {
                 img.remove();
             }
+        });
+
+        // Convert drop zones into readable blank indicators (e.g. [Blank 1], [Blank 2])
+        let dropCount = 0;
+        clone.querySelectorAll('.drop, .dropzone, span.droptarget').forEach(dz => {
+            dropCount++;
+            const placed = dz.innerText.trim();
+            const textNode = document.createTextNode(placed ? `[Blank ${dropCount}: ${placed}]` : `[Blank ${dropCount}]`);
+            dz.replaceWith(textNode);
         });
 
         // Convert tables (Truth Tables, Logic Mappings) to markdown rows
@@ -3980,6 +4182,23 @@
             }
         }
 
+        // 5c. Drag and Drop Question Type check (ddwtos, ddimageortext, ddmarker)
+        const dragHomes = Array.from(que.querySelectorAll('.draghome, .dragitems .draghome, .drags .drag, .drags span, span.draghome, .dragboxes .drag, .dragitem'));
+        const dropZones = Array.from(que.querySelectorAll('.drop, .dropzone, span.droptarget, .droppable'));
+        const isDragDrop = Boolean(que.classList.contains('ddwtos') || que.classList.contains('ddimageortext') || que.classList.contains('ddmarker') || (dragHomes.length > 0 && dropZones.length > 0));
+
+        if (isDragDrop && choices.length === 0) {
+            const seenChoices = new Set();
+            dragHomes.forEach((dh) => {
+                const choiceText = cleanDOMToAI(dh).trim();
+                if (choiceText && !seenChoices.has(choiceText)) {
+                    seenChoices.add(choiceText);
+                    const letter = String.fromCharCode(97 + choices.length);
+                    choices.push(`${letter}. ${choiceText}`);
+                }
+            });
+        }
+
         // 6. Multi-Choice check (checkboxes or "Select one or more")
         const promptElem = que.querySelector('.prompt, .formulation .prompt');
         const promptText = promptElem ? promptElem.innerText : '';
@@ -3997,6 +4216,8 @@
             choices,
             isMultiChoice,
             isShortAnswer,
+            isDragDrop,
+            dropZonesCount: dropZones.length,
             matchPairs,
             questionImages
         };
@@ -4054,7 +4275,12 @@
         if (!data || !data.qText) return '';
 
         let output = '';
-        if (data.isMultiChoice) {
+        if (data.isDragDrop) {
+            output += `[DRAG AND DROP QUESTION - MATCH CHOICES TO BLANKS]\n`;
+            if (data.dropZonesCount > 1) {
+                output += `Total Blanks: ${data.dropZonesCount}\n`;
+            }
+        } else if (data.isMultiChoice) {
             output += `[NOTE: MULTIPLE ANSWERS ALLOWED - SELECT ONE OR MORE CHOICES]\n`;
         }
         output += `${data.qText}\n\n`;
@@ -4102,7 +4328,21 @@
             }
         }
 
-        if (data.choices && data.choices.length > 0) {
+        if (data.isDragDrop) {
+            if (data.choices && data.choices.length > 0) {
+                output += `Available Draggable Choices:\n` + data.choices.join('\n');
+            }
+            if (detectedAnswer && copyIncludeConfidence) {
+                output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
+            }
+            if (withHint) {
+                if (data.dropZonesCount > 1) {
+                    output += `\n\nInstructions: This is a Drag and Drop question with ${data.dropZonesCount} blanks. Match each blank to the correct draggable choice. Format your answer as: Blank 1: [choice text], Blank 2: [choice text], etc. No explanation.`;
+                } else {
+                    output += `\n\nInstructions: This is a Drag and Drop question. Answer ONLY with the correct draggable choice text. No explanation.`;
+                }
+            }
+        } else if (data.choices && data.choices.length > 0) {
             output += data.choices.join('\n');
 
             if (detectedAnswer && copyIncludeConfidence) {

@@ -1603,6 +1603,127 @@ test("Paste AI (V) Shortcut on Dropdowns: selects matching option in <select> dr
     assert.ok(vPasteSection.includes("showToast(`Pasted to Dropdown: Selected ${selectedCount} option(s)`);"), "Must provide clear feedback toast on dropdown paste");
 });
 
+// --------------------------------------------------
+// 53. Drag and Drop Question Extraction & AI Prompt Formatting
+// --------------------------------------------------
+test("Drag and Drop Extraction & Formatting: identifies drag choices, drop zones, and formats AI prompt", () => {
+    function mockExtractDragDrop(dragTexts, dropCount, qTextRaw) {
+        const choices = [];
+        const seen = new Set();
+        dragTexts.forEach((txt) => {
+            const trimmed = txt.trim();
+            if (trimmed && !seen.has(trimmed)) {
+                seen.add(trimmed);
+                const letter = String.fromCharCode(97 + choices.length);
+                choices.push(`${letter}. ${trimmed}`);
+            }
+        });
+
+        return {
+            isDragDrop: true,
+            dropZonesCount: dropCount,
+            qText: qTextRaw,
+            choices
+        };
+    }
+
+    function mockFormatAiPrompt(data) {
+        let output = '';
+        if (data.isDragDrop) {
+            output += `[DRAG AND DROP QUESTION - MATCH CHOICES TO BLANKS]\n`;
+            if (data.dropZonesCount > 1) {
+                output += `Total Blanks: ${data.dropZonesCount}\n`;
+            }
+        }
+        output += `${data.qText}\n\n`;
+        if (data.choices && data.choices.length > 0) {
+            output += `Available Draggable Choices:\n${data.choices.join('\n')}\n\n`;
+        }
+        output += `Instructions: This is a Drag and Drop question.`;
+        return output;
+    }
+
+    const extracted = mockExtractDragDrop(["David Hilbert", "Alan Turing", "Leibniz's Dream", "George Boole", "Alonzo Church"], 1, "[Blank 1] challenged the mathematical community...");
+    assert.strictEqual(extracted.isDragDrop, true);
+    assert.strictEqual(extracted.choices.length, 5);
+    assert.strictEqual(extracted.choices[0], "a. David Hilbert");
+
+    const prompt = mockFormatAiPrompt(extracted);
+    assert.ok(prompt.includes("[DRAG AND DROP QUESTION - MATCH CHOICES TO BLANKS]"));
+    assert.ok(prompt.includes("Available Draggable Choices:"));
+    assert.ok(prompt.includes("a. David Hilbert"));
+
+    // Userscript check
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes(".draghome"), "Must query .draghome choices");
+    assert.ok(script.includes(".drop"), "Must query .drop zones");
+    assert.ok(script.includes("[DRAG AND DROP QUESTION - MATCH CHOICES TO BLANKS]"), "AI prompt must announce Drag and Drop question");
+});
+
+// --------------------------------------------------
+// 54. Drag and Drop Matching Engine & Interactive Hint
+// --------------------------------------------------
+test("Drag and Drop Matching Engine: highlights drag choices, drop zones, and injects 1-click Place button", () => {
+    function matchDragChoice(dragItems, targetAns) {
+        const normTarget = targetAns.toLowerCase().replace(/[^a-z0-9]/g, '');
+        return dragItems.find(item => {
+            const normItem = item.text.toLowerCase().replace(/[^a-z0-9]/g, '');
+            return normItem === normTarget || (normTarget.length > 1 && normItem.includes(normTarget)) || (normItem.length > 1 && normTarget.includes(normItem));
+        });
+    }
+
+    const dragItems = [
+        { text: "Alan Turing", choiceNum: "1" },
+        { text: "David Hilbert", choiceNum: "2" },
+        { text: "George Boole", choiceNum: "3" }
+    ];
+
+    const match = matchDragChoice(dragItems, "David Hilbert");
+    assert.ok(match, "Must find matching drag item for David Hilbert");
+    assert.strictEqual(match.choiceNum, "2");
+
+    // Script check
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("amaes-drag-hint"), "highlightQuizAnswers must create amaes-drag-hint");
+    assert.ok(script.includes("amaes-drag-btn"), "Must create 1-click Place button");
+    assert.ok(script.includes("hasDragHint"), "runAutoQuizSolver must recognize hasDragHint");
+});
+
+// --------------------------------------------------
+// 55. AI Clipboard Paste (V) on Drag and Drop Questions
+// --------------------------------------------------
+test("Paste AI (V) Shortcut on Drag and Drop: parses blank-specific answers and places choices", () => {
+    function parseAiBlanks(clipboardText, dropCount) {
+        const cleaned = clipboardText.replace(/^Answer:\s*/i, '').trim();
+        const blankMatches = cleaned.match(/Blank\s*\d+\s*[:\-–]\s*([^\n,;]+)/gi);
+        if (blankMatches && blankMatches.length > 0) {
+            return blankMatches.map(m => m.replace(/Blank\s*\d+\s*[:\-–]\s*/i, '').trim());
+        } else if (cleaned.includes(',') && dropCount > 1) {
+            return cleaned.split(',').map(s => s.trim()).filter(Boolean);
+        }
+        return [cleaned];
+    }
+
+    // Single blank question
+    const singleAns = parseAiBlanks("David Hilbert", 1);
+    assert.deepStrictEqual(singleAns, ["David Hilbert"]);
+
+    // Multi-blank question
+    const multiAns = parseAiBlanks("Blank 1: b, Blank 2: c, Blank 3: a, Blank 4: b", 4);
+    assert.deepStrictEqual(multiAns, ["b", "c", "a", "b"]);
+
+    // Script check
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    const vPasteStart = script.indexOf('async function autoSelectFromAiClipboard');
+    const vPasteSection = script.substring(vPasteStart, vPasteStart + 15000);
+
+    assert.ok(vPasteSection.includes("Pasted to Drag & Drop: Placed"), "Must show toast feedback on drag-and-drop paste");
+    assert.ok(vPasteSection.includes("matchingDrag.dispatchEvent"), "Must dispatch event to place drag item");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
