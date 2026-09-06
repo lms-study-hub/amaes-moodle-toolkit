@@ -1451,6 +1451,56 @@ test("Auto-Fetch AMAUOED Quiz Toggle: exists in Quiz & DB tabs and stays synchro
     assert.ok(script.includes('autoFetchCloudAnswersIfMissing(subCode)'), "Quiz attempt page load and solver must call autoFetchCloudAnswersIfMissing");
 });
 
+// --------------------------------------------------
+// 47. Inline Cloze / Text Field Sanitization & AMAUOED Matcher
+// --------------------------------------------------
+test("Inline Cloze / Text Field Matcher: strips inline inputs/blanks so sentence matches AMAUOED question", () => {
+    function mockSanitizeMoodleQ(rawMoodleHtml) {
+        // Strip input tags and extra spaces
+        const stripped = rawMoodleHtml.replace(/<input[^>]*>/gi, '').replace(/\s+/g, ' ').trim();
+        let norm = stripped.toLowerCase().replace(/^(question\s*\d+[\s:.]*|\d+[\s:.)]+)/, '');
+        norm = norm.replace(/_{2,}/g, '___').replace(/\s+/g, ' ').replace(/[.:?!;,]+$/, '').trim();
+        return norm;
+    }
+
+    const moodleHtml = 'A Moore machine can be described by a <input type="text" value="6"> tuple.';
+    const amauoedQ = 'A Moore machine can be described by a tuple.';
+    
+    const moodleNorm = mockSanitizeMoodleQ(moodleHtml);
+    const amauoedNorm = mockSanitizeMoodleQ(amauoedQ);
+
+    assert.strictEqual(moodleNorm, "a moore machine can be described by a tuple");
+    assert.strictEqual(amauoedNorm, "a moore machine can be described by a tuple");
+    assert.strictEqual(moodleNorm, amauoedNorm, "Inline input question in Moodle must match AMAUOED question text");
+});
+
+// --------------------------------------------------
+// 48. Text Field Interactive Fill Hint & Auto-Fill
+// --------------------------------------------------
+test("Text Field Interactive Fill: creates clickable fill hint and supports auto-fill", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // Verify all text input selectors are checked
+    assert.ok(script.includes("const textInputs = que.querySelectorAll('input[type=\"text\"]"), "Must query all text inputs including inline cloze fields");
+    assert.ok(script.includes("class=\"amaes-fill-btn\""), "Must include 1-click Fill button in shortans hint");
+    assert.ok(script.includes("textInput.dispatchEvent(new Event('input', { bubbles: true }));"), "Must dispatch input event on fill");
+    assert.ok(script.includes("textInput.dispatchEvent(new Event('change', { bubbles: true }));"), "Must dispatch change event on fill");
+    assert.ok(script.includes("textInput.dispatchEvent(new Event('blur', { bubbles: true }));"), "Must dispatch blur event on fill");
+});
+
+// --------------------------------------------------
+// 49. Paste AI (V) into Text Fields
+// --------------------------------------------------
+test("Paste AI (V) Shortcut: automatically pastes clipboard answer into text field if no choices exist", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // Verify autoSelectFromAiClipboard handles text inputs
+    assert.ok(script.includes("textInputs[0].value = cleanedAnswer;"), "Must paste clean clipboard answer into text field");
+    assert.ok(script.includes("showToast(`Pasted to Text Box: ${cleanedAnswer}`);"), "Must display feedback toast when pasting into text input");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.3.1
+// @version      1.3.2
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.3.1";
+    const SCRIPT_VERSION = "v1.3.2";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -2390,7 +2390,27 @@
             const cleanText = text.trim();
             const inputElements = Array.from(targetQue.querySelectorAll('.answer input[type="radio"], .answer input[type="checkbox"]'));
             if (inputElements.length === 0) {
-                showToast("No multiple choice inputs found for this question");
+                // Check for Short-Answer or fill-in-the-blank text inputs
+                const textInputs = Array.from(targetQue.querySelectorAll('input[type="text"], input.form-control, input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="reset"])'));
+                if (textInputs.length > 0) {
+                    const cleanedAnswer = cleanText
+                        .replace(/^Answer:\s*/i, '')
+                        .replace(/^The correct answer is:\s*/i, '')
+                        .replace(/^[a-e][.)]\s*/i, '')
+                        .replace(/^["']|["']$/g, '')
+                        .trim();
+                    textInputs[0].value = cleanedAnswer;
+                    textInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+                    textInputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+                    textInputs[0].dispatchEvent(new Event('blur', { bubbles: true }));
+                    showToast(`Pasted to Text Box: ${cleanedAnswer}`);
+                    setLog(`AI Paste: Filled text input with <b>${cleanedAnswer}</b>`, "var(--accent-green)");
+                    if (autoNextQuiz) {
+                        scheduleAutoNextAfterAnswer(1000);
+                    }
+                    return;
+                }
+                showToast("No answer inputs found for this question");
                 return;
             }
 
@@ -2629,14 +2649,23 @@
             const qtextElem = que.querySelector('.qtext, .formulation .qtext');
             if (!qtextElem) return;
 
-            const moodleQRaw = qtextElem.innerText.trim();
+            // Clone qtext and remove input, select, textarea, and badges so inline blanks match AMAUOED entries cleanly
+            const qClone = qtextElem.cloneNode(true);
+            qClone.querySelectorAll('input, select, textarea, .amaes-shortans-hint, .amaes-verified-badge, .amaes-probability-hint').forEach(el => el.remove());
+            const moodleQRaw = qClone.innerText.trim();
             const moodleQNorm = normalizeText(moodleQRaw);
 
-            // Find all matching questions from amauoed (handles multiple answers for same question)
+            // Find all matching questions from database/AMAUOED (handles multiple answers for same question and inline blanks)
             const candidates = questionsDb.filter(item => {
                 if (item.qNorm === moodleQNorm) return true;
+
+                // Compare with underscores and blanks stripped for inline cloze questions
+                const itemClean = (item.qNorm || '').replace(/_{2,}|___/g, '').replace(/\s+/g, ' ').trim();
+                const moodleClean = (moodleQNorm || '').replace(/_{2,}|___/g, '').replace(/\s+/g, ' ').trim();
+                if (itemClean && itemClean === moodleClean) return true;
+
                 // Fuzzy: check high overlap or substring
-                if (item.qNorm.length > 20 && (item.qNorm.includes(moodleQNorm) || moodleQNorm.includes(item.qNorm))) return true;
+                if (itemClean.length > 20 && (itemClean.includes(moodleClean) || moodleClean.includes(itemClean))) return true;
                 return false;
             });
 
@@ -2960,33 +2989,93 @@
                 }
             }
 
-            // Handle Short Answer / Text inputs
+            // Handle Short Answer / Text inputs (both standard and inline cloze inputs)
             if (!foundMatchForQuestion) {
-                const textInput = que.querySelector('input[type="text"].form-control, input.form-control');
-                if (textInput && candidates.length > 0) {
+                const textInputs = que.querySelectorAll('input[type="text"], input.form-control, input:not([type="hidden"]):not([type="radio"]):not([type="checkbox"]):not([type="submit"]):not([type="button"]):not([type="reset"])');
+                if (textInputs.length > 0 && candidates.length > 0) {
                     const bestCand = candidates[0];
-                    const bestAnswer = bestCand.ansRaw;
+                    const bestAnswer = bestCand.ansRaw || bestCand.answer || '';
                     const isAmauoed = Boolean((bestCand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(bestCand.sources) && bestCand.sources.some(s => s.toLowerCase().includes('amauoed'))));
                     const sourceColor = isAmauoed ? '#0284c7' : '#10b981';
                     const sourceBg = isAmauoed ? 'rgba(2, 132, 199, 0.1)' : 'rgba(16, 185, 129, 0.1)';
                     const sourceTitle = isAmauoed ? 'Suggested (amauoed.com):' : 'Suggested (Verified DB):';
 
-                    textInput.style.outline = `2px solid ${sourceColor}`;
-                    textInput.style.backgroundColor = sourceBg;
+                    // Parse potential multi-blank answers if multiple inputs exist in the question
+                    const candAnswers = (bestCand.answers && bestCand.answers.length > 0)
+                        ? bestCand.answers
+                        : (bestAnswer.includes(',') && textInputs.length > 1 ? bestAnswer.split(',').map(s => s.trim()) : [bestAnswer]);
 
-                    if (!que.querySelector('.amaes-shortans-hint')) {
-                        const hint = document.createElement('div');
-                        hint.className = 'amaes-shortans-hint';
-                        hint.innerHTML = `<span style="color:${sourceColor}; font-weight:700;">${sourceTitle}</span> <b>${bestAnswer}</b>`;
-                        hint.style.cssText = `font-size: 11px; margin-top: 4px; padding: 4px 8px; background: ${sourceBg}; border-left: 3px solid ${sourceColor}; border-radius: 4px;`;
-                        textInput.parentElement.appendChild(hint);
-                    }
+                    textInputs.forEach((textInput, idx) => {
+                        const targetAns = candAnswers[idx] || candAnswers[0] || bestAnswer;
 
-                    const canSelectAnswer = autoSelect && (autoQuizMode || isManualSelect);
-                    if (canSelectAnswer && !textInput.value) {
-                        textInput.value = bestAnswer;
-                        textInput.dispatchEvent(new Event('input', { bubbles: true }));
-                    }
+                        textInput.style.outline = `2px solid ${sourceColor}`;
+                        textInput.style.backgroundColor = sourceBg;
+                        textInput.style.borderRadius = '4px';
+
+                        let hint = que.querySelector(`.amaes-shortans-hint[data-input-idx="${idx}"]`);
+                        if (!hint) {
+                            hint = document.createElement('div');
+                            hint.className = 'amaes-shortans-hint';
+                            hint.setAttribute('data-input-idx', String(idx));
+                            hint.innerHTML = `
+                                <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                                    <span><span style="color:${sourceColor}; font-weight:700;">${sourceTitle}</span> <b>${targetAns}</b></span>
+                                    <button type="button" class="amaes-fill-btn" style="
+                                        background: ${sourceColor};
+                                        color: #ffffff;
+                                        border: none;
+                                        border-radius: 4px;
+                                        padding: 2px 7px;
+                                        font-size: 10px;
+                                        font-weight: 700;
+                                        cursor: pointer;
+                                        display: inline-flex;
+                                        align-items: center;
+                                        gap: 3px;
+                                        white-space: nowrap;
+                                        box-shadow: 0 1px 2px rgba(0,0,0,0.2);
+                                    ">${ICONS.zap} Fill</button>
+                                </div>
+                            `;
+                            hint.style.cssText = `font-size: 11px; margin-top: 5px; margin-bottom: 3px; padding: 5px 9px; background: ${sourceBg}; border-left: 3px solid ${sourceColor}; border-radius: 4px; cursor: pointer; transition: background 0.15s;`;
+                            hint.title = `Click to auto-fill "${targetAns}" into answer field`;
+
+                            const fillFn = (e) => {
+                                if (e) {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                }
+                                textInput.value = targetAns;
+                                textInput.dispatchEvent(new Event('input', { bubbles: true }));
+                                textInput.dispatchEvent(new Event('change', { bubbles: true }));
+                                textInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                                showToast(`Filled: ${targetAns}`);
+                                hint.style.background = 'rgba(16, 185, 129, 0.2)';
+                                const btn = hint.querySelector('.amaes-fill-btn');
+                                if (btn) btn.innerText = '✓ Filled';
+                            };
+
+                            hint.onclick = fillFn;
+                            const fillBtn = hint.querySelector('.amaes-fill-btn');
+                            if (fillBtn) fillBtn.onclick = fillFn;
+
+                            // Insert hint directly after input container or into question
+                            if (textInput.parentElement && textInput.parentElement !== que) {
+                                textInput.parentElement.appendChild(hint);
+                            } else {
+                                textInput.insertAdjacentElement('afterend', hint);
+                            }
+                        }
+
+                        // Auto-fill when autoPickQuiz is enabled or auto-quiz is running
+                        const canAutoFill = autoPickQuiz || (autoSelect && (autoQuizMode || isManualSelect));
+                        if (canAutoFill && !textInput.value) {
+                            textInput.value = targetAns;
+                            textInput.dispatchEvent(new Event('input', { bubbles: true }));
+                            textInput.dispatchEvent(new Event('change', { bubbles: true }));
+                            textInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                        }
+                    });
 
                     foundMatchForQuestion = true;
                 }
@@ -3805,6 +3894,9 @@
             }
         } else if (data.isShortAnswer) {
             output += `[Short Answer Question]`;
+            if (detectedAnswer && copyIncludeConfidence) {
+                output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
+            }
             if (withHint) {
                 output += `\n\nInstructions: Answer ONLY with the direct text answer. No explanation.`;
             }
