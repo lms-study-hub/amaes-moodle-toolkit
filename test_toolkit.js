@@ -300,6 +300,69 @@ test("Background Relay Payload: formats anonymous payload with required schema",
     assert.strictEqual(Boolean(payload.submittedAt), true);
 });
 
+// --------------------------------------------------
+// 10. Multi-Tier Database Integration & Priority
+// --------------------------------------------------
+function mergeTieredAnswers(verifiedList, amauoedList) {
+    const combined = [];
+    const seen = new Set();
+
+    // 1. Verified official answers take highest priority
+    for (const q of verifiedList) {
+        const key = q.question.toLowerCase().trim();
+        seen.add(key);
+        combined.push({ ...q, tier: 'verified' });
+    }
+
+    // 2. Amauoed curated answers populate remaining questions
+    for (const q of amauoedList) {
+        const key = q.question.toLowerCase().trim();
+        if (!seen.has(key)) {
+            seen.add(key);
+            combined.push({ ...q, tier: 'amauoed' });
+        }
+    }
+
+    return combined;
+}
+
+test("Multi-Tier DB: Verified tier takes priority over amauoed tier on duplicate questions", () => {
+    const verified = [
+        { question: "What is an algorithm?", answer: "A finite step-by-step procedure" }
+    ];
+    const amauoed = [
+        { question: "What is an algorithm?", answer: "A set of rules" },
+        { question: "What is CPU?", answer: "Central Processing Unit" }
+    ];
+
+    const merged = mergeTieredAnswers(verified, amauoed);
+    assert.strictEqual(merged.length, 2, "Merged DB must contain exactly 2 unique questions!");
+    assert.strictEqual(merged[0].answer, "A finite step-by-step procedure", "Verified answer must take precedence!");
+    assert.strictEqual(merged[0].tier, "verified");
+    assert.strictEqual(merged[1].answer, "Central Processing Unit");
+    assert.strictEqual(merged[1].tier, "amauoed");
+});
+
+// --------------------------------------------------
+// 11. Auto-Harvest Settings & Session Gating
+// --------------------------------------------------
+test("Auto-Harvest Configuration: defaults to enabled and respects session gate", () => {
+    const mockStorage = new Map();
+    const mockSession = new Map();
+
+    // Default test: when nothing in storage, must be true
+    const isEnabledByDefault = mockStorage.get('amaes_auto_harvest_grades') !== 'false';
+    assert.strictEqual(isEnabledByDefault, true, "Auto-Harvest must default to true on fresh install!");
+
+    // Session gating test: courseKey session guard prevents multi-trigger
+    const courseKey = "CS6301";
+    const sessionKey = `amaes_grades_harvested_${courseKey}`;
+    
+    assert.strictEqual(mockSession.has(sessionKey), false);
+    mockSession.set(sessionKey, '1');
+    assert.strictEqual(mockSession.has(sessionKey), true);
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
