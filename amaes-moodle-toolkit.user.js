@@ -2158,18 +2158,10 @@
                 <span>(${termCount > 0 ? `${termCount} Qs` : `${verifiedCount} Qs`}${eliminatedCount > 0 ? ` • ${eliminatedCount} Elim` : ''})</span>
             </div>
 
-            <!-- Start / Pause Button -->
+            <!-- Pause / Resume Button -->
             <button id="btn-hud-toggle-quiz" class="amaes-inline-btn" style="padding: 3px 10px; font-size: 10px; background: ${autoQuizMode ? 'rgba(239,68,68,0.25); color:#ef4444; border:1px solid #ef4444' : 'rgba(16,185,129,0.25); color:#10b981; border:1px solid #10b981'}; border-radius: 12px; cursor: pointer; font-weight: 600;">
-                ${autoQuizMode ? 'Pause' : 'Start'}
+                ${autoQuizMode ? 'Pause' : 'Resume'}
             </button>
-
-            <!-- Quick Keys Hint Strip -->
-            <div style="display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--text-muted, #94a3b8); border-left: 1px solid rgba(255,255,255,0.15); padding-left: 8px;" title="Tips: [N] / [Space] Next Page • [1-4] / [A-D] Pick Choice • [C] Copy for AI • [V] Paste AI • [P] Pause">
-                <span style="font-weight: 700; color: #a78bfa;">Tips:</span>
-                <span style="color: #cbd5e1;"><kbd style="background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 9px; font-weight: 700; color: #fff;">N</kbd> Next</span>
-                <span style="color: #cbd5e1;"><kbd style="background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 9px; font-weight: 700; color: #fff;">1-4</kbd> Pick</span>
-                <span style="color: #cbd5e1;"><kbd style="background: rgba(255,255,255,0.12); padding: 1px 4px; border-radius: 3px; font-family: monospace; font-size: 9px; font-weight: 700; color: #fff;">C</kbd> AI</span>
-            </div>
 
             <!-- Toggle Toolkit Panel -->
             <button id="btn-hud-expand-panel" class="amaes-inline-btn" style="padding: 3px 8px; font-size: 10px; background: rgba(255,255,255,0.08); color: #cbd5e1; border: 1px solid rgba(255,255,255,0.2); border-radius: 12px; cursor: pointer;" title="Toggle Full Toolkit Panel">
