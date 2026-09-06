@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.4
+// @version      1.0.5
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, amauoed.com Answer Highlighter, Subject Code detection, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.4";
+    const SCRIPT_VERSION = "v1.0.5";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -434,6 +434,7 @@
         sliders: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="21" x2="4" y2="14"/><line x1="4" y1="10" x2="4" y2="3"/><line x1="12" y1="21" x2="12" y2="12"/><line x1="12" y1="8" x2="12" y2="3"/><line x1="20" y1="21" x2="20" y2="16"/><line x1="20" y1="12" x2="20" y2="3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>`,
         checkBadge: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>`,
         clock: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>`,
+        xCircle: `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>`,
     };
 
 
@@ -732,6 +733,31 @@
         text = text.replace(/\s+/g, ' ');
         text = text.replace(/[.:?!;,]+$/, '');
         return text.trim();
+    }
+
+    // Normalize and structure eliminated wrong choices with weighting & deduplication
+    function normalizeWrongAnswers(rawWrong) {
+        if (!rawWrong || !Array.isArray(rawWrong)) return [];
+        return rawWrong.map(item => {
+            if (typeof item === 'string') {
+                const clean = item.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                const norm = normalizeChoice(clean);
+                if (!norm) return null;
+                return { text: clean, norm: norm, count: 1, sources: [] };
+            }
+            if (typeof item === 'object' && item) {
+                const txt = (item.text || item.ansRaw || item.choice || '').replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                const norm = item.norm || normalizeChoice(txt);
+                if (!norm) return null;
+                return {
+                    text: txt,
+                    norm: norm,
+                    count: typeof item.count === 'number' ? item.count : (typeof item.weight === 'number' ? item.weight : 1),
+                    sources: Array.isArray(item.sources) ? item.sources : []
+                };
+            }
+            return null;
+        }).filter(Boolean);
     }
 
     // ==========================================
@@ -1650,6 +1676,8 @@
         const subCode = courseInfo.subjectCode || 'CS6301';
         const cached = getCachedAnswers(subCode);
         const hasDb = cached && cached.length > 0;
+        const verifiedCount = cached ? cached.filter(q => q.ansRaw || q.answer).length : 0;
+        const eliminatedCount = cached ? cached.reduce((acc, q) => acc + (Array.isArray(q.wrongAnswers) ? q.wrongAnswers.length : 0), 0) : 0;
         const navState = getQuizNavQuestionStates();
 
         const hud = document.createElement('div');
@@ -1707,10 +1735,10 @@
                 display: flex;
                 align-items: center;
                 gap: 4px;
-            " title="${hasDb ? `${cached.length} verified answers stored in database for ${subCode}` : `No database answers found for ${subCode}`}">
+            " title="${hasDb ? `${verifiedCount} verified answers & ${eliminatedCount} eliminated choices stored in DB for ${subCode}` : `No database answers found for ${subCode}`}">
                 <span>${hasDb ? 'DB' : 'No DB'}</span>
                 <span>${subCode}</span>
-                <span>(${hasDb ? cached.length : 0})</span>
+                <span>(${verifiedCount}${eliminatedCount > 0 ? ` • ${eliminatedCount} Elim` : ''})</span>
             </div>
 
             ${jumpHtml}
@@ -1861,9 +1889,10 @@
 
             if (candidates.length === 0) return;
 
-            // Clean up any prior highlighting on this question
-            que.querySelectorAll('.amaes-highlighted-choice').forEach(el => {
+            // Clean up any prior highlighting or elimination badges on this question
+            que.querySelectorAll('.amaes-highlighted-choice, .amaes-eliminated-choice').forEach(el => {
                 el.classList.remove('amaes-highlighted-choice');
+                el.classList.remove('amaes-eliminated-choice');
                 el.style.outline = '';
                 el.style.backgroundColor = '';
                 el.style.borderRadius = '';
@@ -1875,8 +1904,27 @@
                 el.style.gap = '';
                 el.style.width = '';
                 el.style.boxSizing = '';
+                const lbl = el.querySelector('label') || el;
+                if (lbl) {
+                    lbl.style.textDecoration = '';
+                    lbl.style.opacity = '';
+                }
             });
-            que.querySelectorAll('.amaes-verified-badge').forEach(b => b.remove());
+            que.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint').forEach(b => b.remove());
+
+            // Compile all eliminated wrong choices known for this question
+            const allWrongList = [];
+            candidates.forEach(cand => {
+                if (Array.isArray(cand.wrongAnswers)) {
+                    cand.wrongAnswers.forEach(w => {
+                        const wNorm = typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || ''));
+                        const wCount = typeof w === 'object' && typeof w.count === 'number' ? w.count : 1;
+                        if (wNorm && !allWrongList.some(item => item.norm === wNorm)) {
+                            allWrongList.push({ norm: wNorm, text: typeof w === 'string' ? w : w.text, count: wCount });
+                        }
+                    });
+                }
+            });
 
             // Target each choice row container cleanly
             let choiceRows = que.querySelectorAll('.answer > div.r0, .answer > div.r1, .answer > div, .answer li, .answer tr');
@@ -1892,18 +1940,18 @@
                 const label = row.querySelector('label') || row;
                 const input = row.querySelector('input[type="radio"], input[type="checkbox"]');
                 
-                // Extract clean text without badge
+                // Extract clean text without badges
                 let rawText = '';
-                if (row.querySelector('.amaes-verified-badge')) {
+                if (row.querySelector('.amaes-verified-badge, .amaes-eliminated-badge')) {
                     const clone = label.cloneNode(true);
-                    clone.querySelectorAll('.amaes-verified-badge').forEach(b => b.remove());
+                    clone.querySelectorAll('.amaes-verified-badge, .amaes-eliminated-badge, .amaes-probability-hint').forEach(b => b.remove());
                     rawText = clone.innerText;
                 } else {
                     rawText = label.innerText;
                 }
                 const choiceText = normalizeChoice(rawText);
 
-                // Compare against candidate answers
+                // 1. Check against verified candidate answers
                 for (const cand of candidates) {
                     const ansNorm = cand.ansNorm;
                     if (!ansNorm) continue;
@@ -1914,11 +1962,12 @@
                         foundMatchForQuestion = true;
 
                         const isAmauoed = cand.source === 'amauoed';
-                        const sourceColor = isAmauoed ? '#0284c7' : '#10b981';
-                        const sourceBg = isAmauoed ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)';
+                        const isDeduced = cand.deduced === true;
+                        const sourceColor = isDeduced ? '#10b981' : (isAmauoed ? '#0284c7' : '#10b981');
+                        const sourceBg = isDeduced ? 'rgba(16, 185, 129, 0.15)' : (isAmauoed ? 'rgba(2, 132, 199, 0.12)' : 'rgba(16, 185, 129, 0.12)');
                         const sourceBadgeClass = isAmauoed ? 'amaes-badge-amauoed' : 'amaes-badge-db';
-                        const sourceIcon = isAmauoed ? ICONS.external : ICONS.database;
-                        const sourceLabel = isAmauoed ? 'AMAUOED' : 'Verified DB';
+                        const sourceIcon = isDeduced ? '💡' : (isAmauoed ? ICONS.external : ICONS.database);
+                        const sourceLabel = isDeduced ? 'Deduced (100%)' : (isAmauoed ? 'AMAUOED' : 'Verified DB');
 
                         // Apply full row highlight on container
                         const targetRow = row;
@@ -1988,7 +2037,148 @@
                         break;
                     }
                 }
+
+                // 2. Check if choice is confirmed WRONG (elimination)
+                if (!foundMatchForQuestion && allWrongList.length > 0) {
+                    const matchedWrong = allWrongList.find(w => w.norm === choiceText || (choiceText.length > 5 && w.norm.length > 5 && (choiceText.includes(w.norm) || w.norm.includes(choiceText))));
+                    if (matchedWrong) {
+                        const targetRow = row;
+                        targetRow.classList.add('amaes-eliminated-choice');
+                        targetRow.style.outline = '1px dashed rgba(239, 68, 68, 0.7)';
+                        targetRow.style.backgroundColor = 'rgba(239, 68, 68, 0.08)';
+                        targetRow.style.borderRadius = '6px';
+                        targetRow.style.padding = '5px 10px';
+                        targetRow.style.margin = '4px 0';
+                        targetRow.style.display = 'flex';
+                        targetRow.style.alignItems = 'center';
+                        targetRow.style.flexWrap = 'wrap';
+                        targetRow.style.gap = '8px';
+                        targetRow.style.width = '100%';
+                        targetRow.style.boxSizing = 'border-box';
+                        targetRow.style.transition = 'all 0.2s ease';
+
+                        if (label !== targetRow) {
+                            label.style.textDecoration = 'line-through';
+                            label.style.opacity = '0.55';
+                        }
+
+                        let badge = targetRow.querySelector('.amaes-eliminated-badge');
+                        if (!badge) {
+                            badge = document.createElement('span');
+                            badge.className = 'amaes-eliminated-badge';
+                            const countText = matchedWrong.count > 1 ? `${matchedWrong.count}x Wrong` : 'Eliminated (Wrong)';
+                            badge.innerHTML = `${ICONS.xCircle} <span>${countText}</span>`;
+                            badge.title = `Attempt or classmate history confirmed this choice is incorrect`;
+                            badge.style.cssText = `
+                                background: #ef4444;
+                                color: #ffffff;
+                                font-size: 9px;
+                                font-weight: 700;
+                                padding: 2px 6px;
+                                border-radius: 4px;
+                                margin-left: auto;
+                                display: inline-flex;
+                                align-items: center;
+                                gap: 3px;
+                                box-shadow: 0 1px 2px rgba(0,0,0,0.15);
+                                white-space: nowrap;
+                                flex-shrink: 0;
+                            `;
+                            targetRow.appendChild(badge);
+                        }
+                    }
+                }
             });
+
+            // 3. Real-Time Deduction by Elimination: If all choices except 1 are eliminated, deduce the remaining 1 as correct!
+            if (!foundMatchForQuestion && choiceRows.length >= 2) {
+                const uneliminated = Array.from(choiceRows).filter(r => !r.classList.contains('amaes-eliminated-choice'));
+                if (uneliminated.length === 1) {
+                    const deducedRow = uneliminated[0];
+                    const deducedLabel = deducedRow.querySelector('label') || deducedRow;
+                    const deducedInput = deducedRow.querySelector('input[type="radio"], input[type="checkbox"]');
+                    foundMatchForQuestion = true;
+
+                    deducedRow.classList.add('amaes-highlighted-choice');
+                    deducedRow.style.outline = '2px solid #10b981';
+                    deducedRow.style.backgroundColor = 'rgba(16, 185, 129, 0.15)';
+                    deducedRow.style.borderRadius = '6px';
+                    deducedRow.style.padding = '6px 12px';
+                    deducedRow.style.margin = '4px 0';
+                    deducedRow.style.display = 'flex';
+                    deducedRow.style.alignItems = 'center';
+                    deducedRow.style.flexWrap = 'wrap';
+                    deducedRow.style.gap = '8px';
+                    deducedRow.style.width = '100%';
+                    deducedRow.style.boxSizing = 'border-box';
+
+                    let badge = deducedRow.querySelector('.amaes-verified-badge');
+                    if (!badge) {
+                        badge = document.createElement('span');
+                        badge.className = 'amaes-verified-badge amaes-badge-db';
+                        badge.innerHTML = `💡 <span>Deduced (100% Elimination)</span>`;
+                        badge.style.cssText = `
+                            background: linear-gradient(135deg, #10b981, #059669);
+                            color: #ffffff;
+                            font-size: 10px;
+                            font-weight: 700;
+                            padding: 2px 7px;
+                            border-radius: 4px;
+                            margin-left: auto;
+                            display: inline-flex;
+                            align-items: center;
+                            gap: 4px;
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+                            white-space: nowrap;
+                            flex-shrink: 0;
+                        `;
+                        deducedRow.appendChild(badge);
+                    }
+
+                    const canSelectAnswer = autoSelect && (autoQuizMode || isManualSelect);
+                    if (canSelectAnswer && deducedInput && !deducedInput.checked) {
+                        deducedInput.click();
+                    }
+
+                    // Auto-save the deduced answer into course cache for permanent verification!
+                    const deducedText = cleanDOMToAI(deducedLabel).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                    if (deducedText) {
+                        const courseInfo = detectCourseInfo();
+                        const sCode = courseInfo.subjectCode || 'GENERAL';
+                        mergeAnswersIntoCache(sCode, [{
+                            qRaw: moodleQRaw,
+                            qNorm: moodleQNorm,
+                            ansRaw: deducedText,
+                            ansNorm: normalizeChoice(deducedText),
+                            choices: Array.from(choiceRows).map(r => cleanDOMToAI(r.querySelector('label') || r)),
+                            verified: true,
+                            deduced: true,
+                            source: 'Elimination Deduction'
+                        }], 'Elimination Deduction');
+                    }
+                } else if (uneliminated.length > 1 && uneliminated.length < choiceRows.length) {
+                    // Partial elimination: display remaining probability
+                    const remainingProb = Math.round(100 / uneliminated.length);
+                    uneliminated.forEach(candRow => {
+                        if (!candRow.querySelector('.amaes-probability-hint')) {
+                            const pHint = document.createElement('span');
+                            pHint.className = 'amaes-probability-hint';
+                            pHint.style.cssText = `
+                                font-size: 9.5px;
+                                color: var(--accent-blue, #38bdf8);
+                                background: rgba(56, 189, 248, 0.12);
+                                border: 1px solid rgba(56, 189, 248, 0.25);
+                                padding: 1px 5px;
+                                border-radius: 4px;
+                                margin-left: auto;
+                                font-weight: 600;
+                            `;
+                            pHint.innerText = `Candidate (~${remainingProb}% chance)`;
+                            candRow.appendChild(pHint);
+                        }
+                    });
+                }
+            }
 
             // Handle Short Answer / Text inputs
             if (!foundMatchForQuestion) {
@@ -2625,10 +2815,28 @@
 
         let output = `${data.qText}\n\n`;
 
+        // Check if database has confirmed wrong choices for this question
+        const courseInfo = detectCourseInfo();
+        const subCode = courseInfo.subjectCode || 'GENERAL';
+        const cached = getCachedAnswers(subCode);
+        let eliminatedWrong = [];
+        if (cached && cached.length > 0) {
+            const moodleQNorm = normalizeText(data.qText);
+            const cand = cached.find(c => c.qNorm === moodleQNorm || (c.qNorm.length > 20 && (c.qNorm.includes(moodleQNorm) || moodleQNorm.includes(c.qNorm))));
+            if (cand && Array.isArray(cand.wrongAnswers) && cand.wrongAnswers.length > 0) {
+                eliminatedWrong = cand.wrongAnswers.map(w => typeof w === 'string' ? w : w.text).filter(Boolean);
+            }
+        }
+
         if (data.choices && data.choices.length > 0) {
             output += data.choices.join('\n');
+
+            if (eliminatedWrong.length > 0) {
+                output += `\n\n[CONFIRMED WRONG CHOICES - DO NOT SELECT]:\n` + eliminatedWrong.map(w => `- ${w} (Confirmed INCORRECT in previous attempt)`).join('\n');
+            }
+
             if (withHint) {
-                output += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and the exact choice text. Do NOT give any explanations.`;
+                output += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and the exact choice text. Do NOT pick any confirmed wrong choices. Do NOT give explanations.`;
             }
         } else if (data.matchPairs && data.matchPairs.length > 0) {
             output += `Matching items:\n`;
@@ -2887,82 +3095,141 @@
         URL.revokeObjectURL(url);
     }
 
-    // Intelligent Multi-Source Answer Cross-Referencing & Consensus Engine
+    // Intelligent Multi-Source Answer Cross-Referencing, Elimination & Consensus Engine
     function mergeAnswersIntoCache(subCode, newQuestions, sourceLabel = 'Imported') {
         let existing = getCachedAnswers(subCode) || [];
         let addedCount = 0;
         let confirmedCount = 0;
         let conflictCount = 0;
+        let eliminatedCount = 0;
 
         newQuestions.forEach(newItem => {
             const qNorm = newItem.qNorm || normalizeText(newItem.qRaw || newItem.question);
             const ansRaw = newItem.ansRaw || newItem.answer || '';
             const ansNorm = newItem.ansNorm || normalizeChoice(ansRaw);
-            if (!qNorm || !ansRaw) return;
+            const incomingWrong = normalizeWrongAnswers(newItem.wrongAnswers);
+
+            // If neither correct answer nor eliminated wrong answers exist, ignore
+            if (!qNorm || (!ansRaw && incomingWrong.length === 0)) return;
 
             const idx = existing.findIndex(ex => ex.qNorm === qNorm);
 
             if (idx === -1) {
                 // Brand new question added to database
-                existing.push({
+                const entry = {
                     qRaw: newItem.qRaw || newItem.question,
                     qNorm: qNorm,
                     ansRaw: ansRaw,
                     ansNorm: ansNorm,
                     choices: newItem.choices || [],
                     verified: Boolean(newItem.verified),
-                    confirmations: 1,
+                    wrongAnswers: incomingWrong,
+                    confirmations: ansRaw ? 1 : 0,
                     sources: [sourceLabel]
-                });
-                addedCount++;
+                };
+
+                // Deduction check: if choices exist and all but 1 are eliminated
+                if (!entry.ansRaw && Array.isArray(entry.choices) && entry.choices.length > 1) {
+                    const wrongNorms = entry.wrongAnswers.map(w => w.norm);
+                    const remaining = entry.choices.filter(c => !wrongNorms.includes(normalizeChoice(c)));
+                    if (remaining.length === 1) {
+                        entry.ansRaw = remaining[0].replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                        entry.ansNorm = normalizeChoice(entry.ansRaw);
+                        entry.verified = true;
+                        entry.deduced = true;
+                        entry.sources.push('Elimination Deduction');
+                    }
+                }
+
+                existing.push(entry);
+                if (ansRaw) addedCount++;
+                if (incomingWrong.length > 0) eliminatedCount += incomingWrong.length;
             } else {
                 // Question already exists: Cross-reference!
                 const cur = existing[idx];
                 cur.sources = cur.sources || [];
                 if (!cur.sources.includes(sourceLabel)) cur.sources.push(sourceLabel);
 
-                const isSameAnswer = (cur.ansNorm === ansNorm || cur.ansRaw.toLowerCase() === ansRaw.toLowerCase());
+                if (!Array.isArray(cur.wrongAnswers)) {
+                    cur.wrongAnswers = normalizeWrongAnswers(cur.wrongAnswers);
+                }
 
-                if (isSameAnswer) {
-                    // Agreement / Consensus reached!
-                    cur.confirmations = (cur.confirmations || 1) + 1;
-                    if (newItem.verified) cur.verified = true;
-                    if (Array.isArray(newItem.choices) && newItem.choices.length > 0 && (!cur.choices || cur.choices.length === 0)) {
-                        cur.choices = newItem.choices;
-                    }
-                    confirmedCount++;
-                } else {
-                    // Conflicting answer detected for identical question!
-                    cur.variations = cur.variations || [];
-                    const existingVar = cur.variations.find(v => v.ansNorm === ansNorm);
-                    if (existingVar) {
-                        existingVar.confirmations = (existingVar.confirmations || 1) + 1;
+                // Merge incoming wrong answers with weighting
+                incomingWrong.forEach(inW => {
+                    const existingW = cur.wrongAnswers.find(w => w.norm === inW.norm);
+                    if (existingW) {
+                        existingW.count = (existingW.count || 1) + (inW.count || 1);
+                        if (!existingW.sources) existingW.sources = [];
+                        if (!existingW.sources.includes(sourceLabel)) existingW.sources.push(sourceLabel);
                     } else {
-                        cur.variations.push({
-                            ansRaw: ansRaw,
-                            ansNorm: ansNorm,
-                            choices: newItem.choices || [],
-                            verified: Boolean(newItem.verified),
-                            confirmations: 1,
-                            source: sourceLabel
-                        });
+                        cur.wrongAnswers.push(inW);
+                        eliminatedCount++;
                     }
+                });
 
-                    // Precedence: A verified 100% review screen answer overrides an unverified guess
-                    if (newItem.verified && !cur.verified) {
-                        // Move previous answer to variations
-                        cur.variations.push({
-                            ansRaw: cur.ansRaw,
-                            ansNorm: cur.ansNorm,
-                            choices: cur.choices || [],
-                            verified: false,
-                            source: 'Previous'
-                        });
+                // Update choices if missing
+                if (Array.isArray(newItem.choices) && newItem.choices.length > 0 && (!cur.choices || cur.choices.length === 0)) {
+                    cur.choices = newItem.choices;
+                }
+
+                // Handle correct answer
+                if (ansRaw) {
+                    if (!cur.ansRaw) {
                         cur.ansRaw = ansRaw;
                         cur.ansNorm = ansNorm;
-                        cur.verified = true;
+                        cur.verified = Boolean(newItem.verified);
+                        cur.confirmations = 1;
+                        addedCount++;
+                    } else {
+                        const isSameAnswer = (cur.ansNorm === ansNorm || cur.ansRaw.toLowerCase() === ansRaw.toLowerCase());
+                        if (isSameAnswer) {
+                            cur.confirmations = (cur.confirmations || 1) + 1;
+                            if (newItem.verified) cur.verified = true;
+                            confirmedCount++;
+                        } else {
+                            cur.variations = cur.variations || [];
+                            const existingVar = cur.variations.find(v => v.ansNorm === ansNorm);
+                            if (existingVar) {
+                                existingVar.confirmations = (existingVar.confirmations || 1) + 1;
+                            } else {
+                                cur.variations.push({
+                                    ansRaw: ansRaw,
+                                    ansNorm: ansNorm,
+                                    choices: newItem.choices || [],
+                                    verified: Boolean(newItem.verified),
+                                    confirmations: 1,
+                                    source: sourceLabel
+                                });
+                            }
+
+                            if (newItem.verified && !cur.verified) {
+                                cur.variations.push({
+                                    ansRaw: cur.ansRaw,
+                                    ansNorm: cur.ansNorm,
+                                    choices: cur.choices || [],
+                                    verified: false,
+                                    source: 'Previous'
+                                });
+                                cur.ansRaw = ansRaw;
+                                cur.ansNorm = ansNorm;
+                                cur.verified = true;
+                            }
+                            conflictCount++;
+                        }
                     }
-                    conflictCount++;
+                }
+
+                // Deduction check for existing item if still missing verified answer
+                if (!cur.ansRaw && Array.isArray(cur.choices) && cur.choices.length > 1) {
+                    const wrongNorms = cur.wrongAnswers.map(w => w.norm);
+                    const remaining = cur.choices.filter(c => !wrongNorms.includes(normalizeChoice(c)));
+                    if (remaining.length === 1) {
+                        cur.ansRaw = remaining[0].replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                        cur.ansNorm = normalizeChoice(cur.ansRaw);
+                        cur.verified = true;
+                        cur.deduced = true;
+                        cur.sources.push('Elimination Deduction');
+                    }
                 }
             }
         });
@@ -2972,7 +3239,8 @@
             total: existing.length,
             added: addedCount,
             confirmed: confirmedCount,
-            conflicts: conflictCount
+            conflicts: conflictCount,
+            eliminated: eliminatedCount
         };
     }
 
@@ -3258,6 +3526,7 @@
 
         const harvested = [];
         let correctCount = 0;
+        let eliminatedTotal = 0;
 
         queList.forEach((que, idx) => {
             const qData = extractQuestionData(que);
@@ -3265,6 +3534,7 @@
 
             let rightAnswer = '';
             let isVerified = false;
+            const wrongAnswers = [];
 
             // 1. Check for explicit Moodle .rightanswer box
             const rightElem = que.querySelector('.rightanswer, .outcome .rightanswer');
@@ -3277,38 +3547,66 @@
                 }
             }
 
-            // 2. Fallback: Check if question scored full mark (1.00 out of 1.00)
+            // 2. Fallback: Check if question scored full mark (1.00 out of 1.00) vs 0 marks
             const gradeElem = que.querySelector('.info .grade');
             const gradeStr = gradeElem ? gradeElem.innerText : '';
             const isFullMark = que.classList.contains('correct') || /1(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr);
+            const isZeroMark = que.classList.contains('incorrect') || /0(\.0+)?\s*out of\s*1(\.0+)?/i.test(gradeStr);
 
-            if (!rightAnswer && isFullMark) {
-                const checkedRadio = que.querySelector('input[type="radio"]:checked, input[type="checkbox"]:checked');
-                if (checkedRadio) {
-                    const label = checkedRadio.closest('label') || checkedRadio.closest('div.r0, div.r1') || checkedRadio.parentElement;
-                    let text = cleanDOMToAI(label);
-                    text = text.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
-                    if (text) {
-                        rightAnswer = text;
-                        isVerified = true;
-                    }
-                } else {
-                    const textInput = que.querySelector('input[type="text"].form-control, input.form-control');
-                    if (textInput && textInput.value) {
-                        rightAnswer = textInput.value.trim();
-                        isVerified = true;
-                    }
+            // Checked radio or checkbox in this question
+            const checkedInputs = que.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked');
+            const checkedTexts = [];
+            checkedInputs.forEach(inp => {
+                const label = inp.closest('label') || inp.closest('div.r0, div.r1') || inp.parentElement;
+                let text = cleanDOMToAI(label);
+                text = text.replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                if (text) checkedTexts.push(text);
+            });
+
+            // If user got full mark, the selected choice is verified correct!
+            if (!rightAnswer && isFullMark && checkedTexts.length > 0) {
+                rightAnswer = checkedTexts[0];
+                isVerified = true;
+            } else if (!rightAnswer && isFullMark) {
+                const textInput = que.querySelector('input[type="text"].form-control, input.form-control');
+                if (textInput && textInput.value) {
+                    rightAnswer = textInput.value.trim();
+                    isVerified = true;
                 }
             }
 
-            if (rightAnswer) {
-                correctCount++;
+            // If question was marked INCORRECT (0 marks): the checked choice is confirmed WRONG!
+            if (isZeroMark && checkedTexts.length > 0) {
+                checkedTexts.forEach(txt => {
+                    const norm = normalizeChoice(txt);
+                    if (norm && !wrongAnswers.some(w => normalizeChoice(w) === norm)) {
+                        wrongAnswers.push(txt);
+                    }
+                });
+            }
+
+            // Also check Moodle's per-choice incorrect indicators (e.g. choice has class incorrect or red cross icon)
+            const incorrectChoiceElems = que.querySelectorAll('.answer div.incorrect, .answer tr.incorrect, .answer li.incorrect, .answer .fa-remove, .answer .fa-times');
+            incorrectChoiceElems.forEach(el => {
+                const row = el.closest('div.r0, div.r1, tr, li') || el;
+                const label = row.querySelector('label') || row;
+                let text = cleanDOMToAI(label).replace(/^[a-zA-Z0-9][.)]\s*/, '').trim();
+                const norm = normalizeChoice(text);
+                if (norm && !wrongAnswers.some(w => normalizeChoice(w) === norm) && (!rightAnswer || norm !== normalizeChoice(rightAnswer))) {
+                    wrongAnswers.push(text);
+                }
+            });
+
+            if (rightAnswer || wrongAnswers.length > 0) {
+                if (rightAnswer) correctCount++;
+                eliminatedTotal += wrongAnswers.length;
                 harvested.push({
                     index: idx + 1,
                     qRaw: qData.qText,
                     qNorm: normalizeText(qData.qText),
                     ansRaw: rightAnswer,
                     ansNorm: normalizeChoice(rightAnswer),
+                    wrongAnswers: normalizeWrongAnswers(wrongAnswers),
                     choices: qData.choices,
                     verified: isVerified
                 });
@@ -3323,6 +3621,7 @@
             gradeText,
             totalQuestions: queList.length,
             harvestedCount: correctCount,
+            eliminatedCount: eliminatedTotal,
             questions: harvested
         };
     }
@@ -3337,10 +3636,12 @@
             grade: data.gradeText,
             totalQuestions: data.totalQuestions,
             answerCount: data.harvestedCount,
+            eliminatedCount: data.eliminatedCount || 0,
             questions: data.questions.map(q => ({
                 question: q.qRaw,
                 answer: q.ansRaw,
-                choices: q.choices
+                choices: q.choices,
+                wrongAnswers: Array.isArray(q.wrongAnswers) ? q.wrongAnswers.map(w => typeof w === 'string' ? w : w.text) : []
             }))
         };
         return JSON.stringify(payload, null, 2);
@@ -3350,12 +3651,21 @@
         let out = `========================================\n`;
         out += `${data.subjectCode} - ${data.quizTitle}\n`;
         if (data.gradeText) out += `Score: ${data.gradeText}\n`;
-        out += `Verified Answer Key (${data.harvestedCount} Questions)\n`;
+        out += `Verified Answer Key (${data.harvestedCount} Correct • ${data.eliminatedCount || 0} Eliminated Wrong Choices)\n`;
         out += `========================================\n\n`;
 
         data.questions.forEach((q, i) => {
             out += `${i + 1}. ${q.qRaw}\n`;
-            out += `   Correct Answer: ${q.ansRaw}\n\n`;
+            if (q.ansRaw) {
+                out += `   Correct Answer: ${q.ansRaw}\n`;
+            } else {
+                out += `   Correct Answer: [Pending Discovery]\n`;
+            }
+            if (q.wrongAnswers && q.wrongAnswers.length > 0) {
+                const wTexts = q.wrongAnswers.map(w => typeof w === 'string' ? w : w.text).filter(Boolean);
+                out += `   ❌ Eliminated Wrong: ${wTexts.join(' | ')}\n`;
+            }
+            out += `\n`;
         });
 
         out += `Exported from AMAES Moodle Toolkit`;
@@ -3367,10 +3677,12 @@
         if (document.getElementById('amaes-review-banner')) return;
 
         const harvested = harvestReviewAnswers();
-        if (!harvested || !harvested.success || harvested.harvestedCount === 0) return;
+        if (!harvested || !harvested.success || (harvested.harvestedCount === 0 && (harvested.eliminatedCount || 0) === 0)) return;
 
-        // Auto-save verified answers to local subject cache
+        // Auto-save verified answers and eliminated wrong choices to local subject cache
         const cacheRes = mergeAnswersIntoCache(harvested.subjectCode, harvested.questions, 'Review');
+
+        setLog(`Review Harvested: <b>${harvested.harvestedCount}</b> verified answers & <b>${harvested.eliminatedCount || 0}</b> wrong choices saved for <b>${harvested.subjectCode}</b>!`, "var(--accent-green)");
 
         const autoDlEnabled = localStorage.getItem('amaes_auto_dl_json') !== 'false';
         const autoPushEnabled = localStorage.getItem('amaes_auto_push_github') === 'true';
@@ -3438,13 +3750,13 @@
                 <div>
                     <div style="font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px;">
                         <span>Quiz Review Harvested:</span>
-                        <span style="color: var(--accent-green, #10b981);">${harvested.harvestedCount}/${harvested.totalQuestions} Verified Answers Ready</span>
+                        <span style="color: var(--accent-green, #10b981);">${harvested.harvestedCount}/${harvested.totalQuestions} Verified • ${harvested.eliminatedCount || 0} Wrong Eliminated</span>
                     </div>
                     <div style="font-size: 11px; color: var(--text-secondary, #94a3b8); margin-top: 1px;">
-                        ${harvested.subjectCode} • ${harvested.gradeText || 'Saved to local cache & ready to share'}
+                        ${harvested.subjectCode} • ${harvested.gradeText || 'Saved to local storage for automatic elimination on retake!'}
                     </div>
                     <div style="font-size: 10px; color: #10b981; margin-top: 2px; font-weight: 600;">
-                        Safe Contribution: Only server-verified answers harvested. Score does not affect DB accuracy.
+                        Safe Learning: Verified answers auto-pick on retake. Known wrong choices are crossed out and eliminated!
                     </div>
                 </div>
             </div>
@@ -3584,6 +3896,7 @@
                     question: q.question || q.qText || "",
                     answer: q.answer || q.correctAnswer || "",
                     choices: q.choices || [],
+                    wrongAnswers: Array.isArray(q.wrongAnswers) ? q.wrongAnswers.map(w => typeof w === 'string' ? w : (w && w.text ? w.text : w)) : [],
                     confidence: typeof q.confidence === 'number' ? q.confidence : 1.0,
                     source: q.source || "community_contribute"
                 }))
@@ -3594,6 +3907,8 @@
             const questions = allDbs[targetCode] || [];
             const payload = generatePayload(targetCode, questions);
             const payloadStr = JSON.stringify(payload, null, 2);
+            const verifiedCount = questions.filter(q => q.answer || q.correctAnswer).length;
+            const eliminatedCount = questions.reduce((acc, q) => acc + (Array.isArray(q.wrongAnswers) ? q.wrongAnswers.length : 0), 0);
 
             modal.innerHTML = `
                 <div style="
@@ -3657,7 +3972,7 @@
                                 ` : `<b style="color: var(--accent-blue, #38bdf8); margin-left: 4px;">${targetCode}</b>`}
                             </div>
                             <span style="background: ${questions.length > 0 ? '#10b981' : '#f43f5e'}; color: #fff; padding: 2px 8px; border-radius: 12px; font-weight: 700; font-size: 10px;">
-                                ${questions.length} Answers Found
+                                ${verifiedCount} Verified • ${eliminatedCount} Eliminated
                             </span>
                         </div>
 

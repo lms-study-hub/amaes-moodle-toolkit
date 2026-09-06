@@ -1,11 +1,11 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.4)
+[![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)](https://github.com/lms-study-hub/amaes-moodle-toolkit/releases/tag/v1.0.5)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 
-> **Version 1.0.4** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
+> **Version 1.0.5** • Modular, privacy-preserving study companion and automation toolkit for AMAES / ACLC Moodle (`semestral.amaes.com`).
 
 ---
 
@@ -32,7 +32,7 @@
 The toolkit features built-in update mechanisms:
 - **Tampermonkey / Violentmonkey Native Sync**: The userscript defines standard `@updateURL` and `@downloadURL` headers pointing directly to the official GitHub repository `main` branch. Extensions will auto-update the script in the background.
 - **In-App Real-Time Notification**: Whenever a new version is tagged or published on GitHub, an update banner (`New vX.Y.Z released!`) automatically slides into the panel header with a 1-click **Update Now** button.
-- **On-Demand Check**: Click the version badge (`v1.0.4`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
+- **On-Demand Check**: Click the version badge (`v1.0.5`) in the panel header or inside the **Quick Start Guide** modal (`?`) to immediately check GitHub for updates, or click **Update Script** to open the raw direct installer.
 
 ---
 
@@ -45,6 +45,23 @@ The **AMAES & ACLC Moodle Toolkit** is an advanced paired userscript designed fo
 - **Official Branding**: Features the official **ACLC logo** alongside AMAES in both the floating top app bar and the welcome guide.
 - **Adaptive Dark & Light Modes**: Seamlessly switches between high-contrast dark theme and clean light theme with persistent preference storage.
 - **Rich Interactive Tooltips**: Every button, switch, and field features an explanatory hover tooltip.
+
+---
+
+## Intelligent Multi-Course & Retake Engine
+
+### Multi-Course Retention in LocalStorage
+When you navigate between multiple subjects (e.g. `CS6301`, `ITE6200`, `HUM6100`), each course's database remains strictly segregated and preserved under its unique key in your browser's local storage. Switching subjects or taking quizzes in parallel will never overwrite or purge previous course answers.
+
+### Cross-Attempt Elimination & Deduction Engine (New in v1.0.5)
+In quizzes with multiple attempts or shared pools where Moodle does not display the correct answer upon failure, every attempt now builds **negative knowledge**:
+1. **Wrong Answer Tracking**: Any choice selected that received 0.00 marks or was flagged incorrect by Moodle is permanently logged as eliminated.
+2. **Visual Strikethrough & Probability Indicator**:
+   - Eliminated choices are crossed out in red dashed boxes with `[❌ Eliminated (Wrong)]` tags (or weighted like `2x Wrong` if repeatedly eliminated).
+   - Remaining viable choices display estimated probabilities (e.g. `~50% chance` when 2 of 4 options are eliminated).
+3. **Auto-Pick Immunity**: The Co-Pilot and Auto-Quiz solvers are strictly prohibited from picking any eliminated choice.
+4. **Automatic Logical Deduction**: In a 4-choice question, when 3 choices are confirmed incorrect across retakes or community data, the 4th choice is **100% mathematically deduced** as correct. The script highlights it in green, auto-picks it, and immediately upgrades it to a permanent verified answer.
+5. **AI Prompt Filtering**: When using "Copy for AI", eliminated wrong choices are automatically tagged with `[CONFIRMED WRONG CHOICES - DO NOT SELECT]` so ChatGPT/Gemini does not repeat previous errors.
 
 ---
 
@@ -120,12 +137,15 @@ Instead of an overwhelming vertical list of buttons, the toolkit is organized in
 The toolkit cleanly differentiates answer confidence so you always know where an answer originated:
 
 - **Verified DB** (`#10b981` Emerald Green):
-  - 100% verified from Moodle teacher review feedback or the GitHub community repository.
+  - 100% verified from Moodle teacher review feedback, deduction, or the GitHub community repository.
   - Displayed with a green outline and a clean `[Verified DB]` badge.
 - **AMAUOED** (`#0284c7` Sky Blue):
   - Web-scraped study guide from `amauoed.com`.
   - Displayed with a sky blue outline and an `[AMAUOED]` badge.
   - Useful as an intelligent fallback when official server review keys are not yet harvested.
+- **Eliminated Wrong** (`#f43f5e` Rose Red):
+  - Confirmed wrong options harvested from 0-mark questions or Moodle incorrect tags.
+  - Displayed with red dashed borders, strikethrough, and a `[❌ Eliminated (Wrong)]` badge.
 
 ---
 
@@ -146,8 +166,9 @@ Students often ask: *"What if I scored 60% or 80%? Will my attempt corrupt the d
 
 **It is 100% impossible to poison the database:**
 1. **Missed Questions**: When a question is marked incorrect, Moodle displays the official teacher feedback: `"The correct answer is: [official text]"`. The harvester extracts this official teacher response directly.
-2. **Correct Questions**: Moodle confirms full marks (`1.00 / 1.00`), verifying the student's answer.
-3. **Hidden / Ambiguous Questions**: If Moodle hides the correct answer and the question was missed, the harvester strictly skips it.
+2. **Wrong Answers Logged**: Even if Moodle hides the correct answer, the incorrect option picked is saved to your wrong-answers cache, eliminating it from future attempts.
+3. **Correct Questions**: Moodle confirms full marks (`1.00 / 1.00`), verifying the student's answer.
+4. **Negative Knowledge Preservation**: Low-score attempts now actively contribute to the elimination engine rather than being wasted.
 
 ---
 
@@ -158,7 +179,7 @@ amaes-moodle-toolkit/
 ├── README.md                     # Documentation & overview
 ├── INSTALL.md                    # Detailed browser & extension setup guide
 ├── LICENSE                       # MIT Open Source License
-├── amaes-moodle-toolkit.user.js  # Main userscript (v1.0.3)
+├── amaes-moodle-toolkit.user.js  # Main userscript (v1.0.5)
 └── assets/
     └── aclc_logo_transparent.png # Official ACLC College logo asset
 ```
