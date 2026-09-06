@@ -1907,10 +1907,15 @@
         window.addEventListener('keydown', (e) => {
             if (!enableKeyboardShortcuts) return;
 
-            // Strict safety: ignore hotkeys if typing in input fields
+            // Strict safety: ignore hotkeys ONLY when actively typing in text input fields
             const active = document.activeElement;
-            if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
-                return;
+            if (active) {
+                const tag = active.tagName ? active.tagName.toUpperCase() : '';
+                const type = active.type ? active.type.toLowerCase() : '';
+                const isTextInput = (tag === 'INPUT' && !['radio', 'checkbox', 'button', 'submit', 'reset'].includes(type)) ||
+                                    tag === 'TEXTAREA' ||
+                                    active.isContentEditable;
+                if (isTextInput) return;
             }
 
             if (e.ctrlKey || e.altKey || e.metaKey) return;
@@ -1923,6 +1928,9 @@
                 const nextBtn = findQuizNextButton();
                 if (nextBtn) {
                     e.preventDefault();
+                    if (active && typeof active.blur === 'function') {
+                        active.blur();
+                    }
                     showToast("Shortcut: Next Page");
                     setLog("Keyboard shortcut triggered: <b>Next Page</b>", "var(--accent-blue)");
                     nextBtn.click();
