@@ -72,6 +72,7 @@
         const statusEl = document.getElementById('amaes-status');
         if (statusEl) {
             statusEl.innerHTML = currentDoing;
+            statusEl.title = currentDoing.replace(/<[^>]*>?/gm, '');
             if (color) statusEl.style.color = color;
             else statusEl.style.color = "var(--text-primary)";
         }
@@ -79,6 +80,7 @@
         const planEl = document.getElementById('amaes-plan-text');
         if (planEl) {
             planEl.innerHTML = currentPlan;
+            planEl.title = currentPlan.replace(/<[^>]*>?/gm, '');
         }
 
         const dotEl = document.getElementById('amaes-status-dot');
@@ -3445,8 +3447,12 @@
 
     // Cloud Database Synchronization (GitHub / Cloud JSON)
     async function syncAnswersFromCloud(subCode, cloudUrl = null) {
+        if (!subCode || subCode.toUpperCase() === 'DEFAULT' || subCode.toUpperCase() === 'GENERAL') {
+            throw new Error('Please select or specify a valid subject code (e.g. CS6301, ITE6301)');
+        }
+        const cleanSubCode = subCode.trim().toUpperCase();
         const base = cloudUrl || cloudDbBaseUrl;
-        const targetUrl = base.endsWith('/') ? `${base}${subCode}.json` : `${base}/${subCode}.json`;
+        const targetUrl = base.endsWith('/') ? `${base}${cleanSubCode}.json` : `${base}/${cleanSubCode}.json`;
 
         logDebug(`Syncing community database from cloud: ${targetUrl}`);
 
@@ -4440,9 +4446,20 @@
         if (document.getElementById('amaes-toolkit-panel')) return;
 
         const courseInfo = detectCourseInfo();
-        const subCode = courseInfo.subjectCode || 'DEFAULT';
-        const defaultAmauoedUrl = getStoredAmauoedUrl(subCode);
-        const cachedQuestions = getCachedAnswers(subCode);
+        const allLocalDbs = getAllSavedSubjectDatabases();
+        const cachedCodes = Object.keys(allLocalDbs);
+        const cardCodes = [];
+        document.querySelectorAll('.coursebox, .dashboard-card, [data-course-id], .course-info-container').forEach(card => {
+            const txt = card.innerText || '';
+            const m = txt.match(/\b([A-Za-z]{2,4}\d{4})\b/);
+            if (m && !cardCodes.includes(m[1].toUpperCase())) {
+                cardCodes.push(m[1].toUpperCase());
+            }
+        });
+        const detectedCodes = Array.from(new Set([...(courseInfo.subjectCode ? [courseInfo.subjectCode] : []), ...cachedCodes, ...cardCodes]));
+        let subCode = courseInfo.subjectCode || detectedCodes[0] || '';
+        const defaultAmauoedUrl = subCode ? getStoredAmauoedUrl(subCode) : '';
+        const cachedQuestions = subCode ? getCachedAnswers(subCode) : null;
         const isQuiz = checkIsQuizPage();
 
         let initialKeyword = "";
@@ -4611,6 +4628,16 @@
 
                 <!-- TAB PANE 2: Verified Answer Database -->
                 <div id="tab-pane-db" class="amaes-tab-pane" style="display: none; padding: 8px; flex-direction: column; gap: 6px;">
+                    <!-- Course Selector for Dashboard / Non-Course Pages -->
+                    ${!courseInfo.subjectCode && detectedCodes.length > 0 ? `
+                        <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px; background: var(--surface-subtle); padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border-subtle); font-size: 11px;">
+                            <span style="font-weight: 700; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">${ICONS.book} Active Course:</span>
+                            <select id="amaes-select-active-course" style="background: var(--surface); color: var(--text-primary); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-weight: 700; font-size: 11px; cursor: pointer;">
+                                ${detectedCodes.map(c => `<option value="${c}" ${c === subCode ? 'selected' : ''}>${c} (${(allLocalDbs[c] || []).length} Qs)</option>`).join('')}
+                                <option value="_custom">+ Enter Custom Code...</option>
+                            </select>
+                        </div>
+                    ` : ''}
                     <!-- Source URL Input & Auto-Find Button -->
                     <div style="display: flex; flex-direction: column; gap: 3px;">
                         <div style="display: flex; gap: 4px; align-items: center;">
@@ -4841,14 +4868,14 @@
                     font-size: 11px;
                 ">
                     <!-- Doing (Current Action) -->
-                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 6px;">
-                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; width: 100%; min-width: 0;">
+                        <div style="display: flex; align-items: center; gap: 6px; min-width: 0; flex: 1; overflow: hidden;">
                             <span id="amaes-status-dot" style="width: 7px; height: 7px; border-radius: 50%; background: ${cachedQuestions ? '#10b981' : 'var(--text-muted)'}; flex-shrink: 0; box-shadow: 0 0 5px rgba(16,185,129,0.5);"></span>
-                            <span id="amaes-status" style="font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                            <span id="amaes-status" style="font-weight: 600; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1;" title="Current Status">
                                 ${cachedQuestions ? `Ready. Cached ${cachedQuestions.length} verified Q&A.` : 'Ready. Select a tool above.'}
                             </span>
                         </div>
-                        <button id="amaes-btn-toggle-logs" type="button" style="background: rgba(255,255,255,0.06); border: 1px solid var(--border); color: var(--text-secondary); font-size: 9.5px; cursor: pointer; display: flex; align-items: center; gap: 3px; padding: 2px 5px; border-radius: 4px; flex-shrink: 0;" title="Toggle Activity History Log">
+                        <button id="amaes-btn-toggle-logs" type="button" style="background: var(--surface, #1e293b); border: 1px solid var(--border, #334155); color: var(--text-secondary); font-size: 9.5px; cursor: pointer; display: flex; align-items: center; gap: 3px; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; z-index: 2; box-shadow: 0 1px 3px rgba(0,0,0,0.25);" title="Toggle Activity History Log">
                             ${ICONS.clock} <span id="amaes-log-count-badge">Log</span>
                         </button>
                     </div>
@@ -5017,7 +5044,18 @@
                 }
 
                 #amaes-status {
+                    flex: 1 1 0%;
+                    min-width: 0;
+                    max-width: 100%;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                    display: block;
+                }
+                #amaes-btn-toggle-logs {
                     flex-shrink: 0;
+                    margin-left: auto;
+                    z-index: 2;
                 }
 
                 .amaes-inline-btn {
@@ -5693,23 +5731,64 @@
             updateUrlMatchBadge();
         }
 
+        const selectActiveCourse = document.getElementById('amaes-select-active-course');
+        if (selectActiveCourse) {
+            selectActiveCourse.onchange = () => {
+                let val = selectActiveCourse.value;
+                if (val === '_custom') {
+                    const custom = prompt("Enter Subject Code (e.g. CS6301, ITE6301):", "");
+                    if (custom && custom.trim()) {
+                        val = custom.trim().toUpperCase();
+                        const opt = document.createElement('option');
+                        opt.value = val;
+                        opt.textContent = `${val} (0 Qs)`;
+                        opt.selected = true;
+                        selectActiveCourse.insertBefore(opt, selectActiveCourse.lastElementChild);
+                    } else {
+                        selectActiveCourse.value = subCode;
+                        return;
+                    }
+                }
+                subCode = val;
+                if (amauoedUrlInput) {
+                    amauoedUrlInput.value = getStoredAmauoedUrl(subCode);
+                    updateUrlMatchBadge();
+                }
+                const curAnswers = getCachedAnswers(subCode);
+                if (fetchBtnLabel) {
+                    fetchBtnLabel.innerText = curAnswers ? `Refresh Database (${curAnswers.length} in DB)` : 'Fetch & Sync Database';
+                }
+                setLog(`Active subject switched to <b>${subCode}</b> (${(curAnswers || []).length} cached answers).`, "var(--accent-blue)");
+            };
+        }
+
         const btnAutofindAmauoed = document.getElementById('btn-autofind-amauoed');
         if (btnAutofindAmauoed) {
             btnAutofindAmauoed.onclick = async () => {
+                let targetCode = subCode;
+                if (!targetCode || targetCode === 'DEFAULT' || targetCode === 'GENERAL') {
+                    const entered = prompt("Enter Subject Code to search AMAUOED for (e.g. CS6301, ITE6301):", (detectedCodes && detectedCodes[0]) || "");
+                    if (!entered || !entered.trim()) {
+                        setLog("Auto-find cancelled (no subject code specified).", "var(--accent-amber)");
+                        return;
+                    }
+                    targetCode = entered.trim().toUpperCase();
+                    subCode = targetCode;
+                }
                 btnAutofindAmauoed.disabled = true;
                 btnAutofindAmauoed.innerHTML = `<span>Searching...</span>`;
-                setLog(`Searching amauoed.com for ${subCode}...`, 'var(--accent-blue)', 'Plan: Crawl course directory and link question bank');
+                setLog(`Searching amauoed.com for <b>${targetCode}</b>...`, 'var(--accent-blue)', 'Plan: Crawl course directory and link question bank');
                 try {
-                    const foundUrl = await autoFindAmauoedLink(subCode, courseInfo.subjectName || courseInfo.currentActivityTitle || '');
+                    const foundUrl = await autoFindAmauoedLink(targetCode, courseInfo.subjectName || courseInfo.currentActivityTitle || '');
                     if (foundUrl) {
                         amauoedUrlInput.value = foundUrl;
                         updateUrlMatchBadge();
-                        showToast(`Found link for ${subCode}! Auto-fetching answers...`);
-                        setLog(`Found AMAUOED link for <b>${subCode}</b>! Auto-fetching answers... Tip: Switch personality to <b>Co-Pilot</b> for guided solving.`, 'var(--accent-green)', 'Plan: Auto-parse Q&A into database');
+                        showToast(`Found link for ${targetCode}! Auto-fetching answers...`);
+                        setLog(`Found AMAUOED link for <b>${targetCode}</b>! Auto-fetching answers... Tip: Switch personality to <b>Co-Pilot</b> for guided solving.`, 'var(--accent-green)', 'Plan: Auto-parse Q&A into database');
                         if (fetchBtn) fetchBtn.click();
                     } else {
-                        showToast(`No exact amauoed.com link found for ${subCode}.`);
-                        setLog(`No direct AMAUOED guide found for <b>${subCode}</b>. Tip: Try <b>Cloud Sync</b> or use <b>'C' hotkey</b> to get instant AI answers.`, 'var(--accent-amber)', 'Plan: Paste link manually or sync cloud DB');
+                        showToast(`No exact amauoed.com link found for ${targetCode}.`);
+                        setLog(`No direct AMAUOED guide found for <b>${targetCode}</b>. Tip: Try <b>Cloud Sync</b> or use <b>'C' hotkey</b> to get instant AI answers.`, 'var(--accent-amber)', 'Plan: Paste link manually or sync cloud DB');
                     }
                 } catch (err) {
                     console.error('Auto-find failed:', err);
@@ -5920,15 +5999,25 @@ setupPersistentAccordion('mod-quiz-header', 'mod-quiz-body', 'mod-quiz-arrow', '
 
         if (btnCloudSync) {
             btnCloudSync.onclick = async () => {
+                let targetCode = subCode;
+                if (!targetCode || targetCode === 'DEFAULT' || targetCode === 'GENERAL') {
+                    const entered = prompt("Enter Subject Code to sync from Cloud (e.g. CS6301, ITE6301):", (detectedCodes && detectedCodes[0]) || "");
+                    if (!entered || !entered.trim()) {
+                        setLog("Cloud sync cancelled (no subject code specified).", "var(--accent-amber)");
+                        return;
+                    }
+                    targetCode = entered.trim().toUpperCase();
+                    subCode = targetCode;
+                }
                 btnCloudSync.disabled = true;
                 btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing...</span>`;
-                setLog(`Connecting to community cloud database for <b>${subCode}</b>...`);
+                setLog(`Connecting to community cloud database for <b>${targetCode}</b>...`);
 
                 try {
-                    const res = await syncAnswersFromCloud(subCode);
-                    const finalDb = getCachedAnswers(subCode) || [];
+                    const res = await syncAnswersFromCloud(targetCode);
+                    const finalDb = getCachedAnswers(targetCode) || [];
                     showToast(`Cloud Sync Success! (${res.count} community answers loaded)`);
-                    setLog(`Synced <b>${res.count}</b> answers from Cloud! (Total in DB: <b>${finalDb.length}</b>)`, "var(--accent-green)");
+                    setLog(`Synced <b>${res.count}</b> answers for <b>${targetCode}</b>! (Total: <b>${finalDb.length}</b>)`, "var(--accent-green)");
 
                     if (fetchBtnLabel) {
                         fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
