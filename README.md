@@ -1,6 +1,6 @@
 # AMAES & ACLC Moodle Autonomous Toolkit
 
-[![Version](https://img.shields.io/badge/version-1.2.7-blue.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
+[![Version](https://img.shields.io/badge/version-1.2.8-blue.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![Install Userscript](https://img.shields.io/badge/Install-Userscript-emerald.svg)](https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js)
 [![Platform](https://img.shields.io/badge/platform-Violentmonkey%20%7C%20Tampermonkey-darkblue.svg)](INSTALL.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
@@ -74,19 +74,20 @@ The toolkit is organized into 3 focused tabs:
   - **AMAUOED**: Web-scraped study guide questions from `amauoed.com`.
   - **Eliminated Wrong**: Confirmed incorrect choices tracked across attempts.
 - **Term Breakdown**: Filter coverage by Prelim, Midterm, Pre-Final, and Final terms.
-- **Cloud Database Auto-Sync**: Automatically syncs the latest verified question bank on course load.
-- **Auto-Scrape AMAUOED**: Automatically queries and caches course guides for your current subject code.
+- **Cloud Database Auto-Sync**: Automatically pulls the latest verified question bank on course open, with seamless fallback to **AMAUOED auto-scraping** if the cloud database does not have that course yet.
+- **Auto-Scrape AMAUOED**: Automatically discovers and crawls study guide questions from `amauoed.com` for your subject code.
 - **Anonymous Auto-Share on Review**: Whenever you complete a quiz attempt, any verified teacher answers or eliminated choices are automatically and anonymously shared to help fellow students.
-- **Grade Report Auto-Harvester**: Automatically scans completed past quiz reviews from your Grades page to seed your local database.
+- **Multi-Course Grade Report Harvester**: Automatically harvests completed past quizzes from your Grades page. On the Dashboard (`/my/`), 1 click (or automatic session harvest) scans **all enrolled courses in bulk**, indexing your entire semester into your local database!
 - **Manual JSON Backup & Import**: Export your answers to JSON or import study packs from classmates.
 
 ### 3. Course Tools Tab *(Productivity & Course Navigation)*
 - **Batch Activity Auto-Marker**: Completes lectures, readings, and video assignments in 1 click.
 - **Highlight Missing Quizzes**: Instantly scans your current Course or Grades page, color-coding missing or unattempted quizzes so you never miss a deadline.
 - **Course Search Helper**: Generates tailored Google search queries for your active subject code with 1 click.
-- **Live Execution Monitor**:
-  - **Doing**: Real-time indicator of active background operations.
-  - **Plan**: Anticipated next step.
+- **Live Interactive Monitor & Status Dot**:
+  - **Pulsing Status Light**: Visual heartbeat indicator that pulses every time a toggle, button, or background process executes.
+  - **Doing**: Real-time indicator of active background operations (e.g. `[1/4] Scanning CS6301...`).
+  - **Plan**: Clear next planned step.
   - **Done Feed**: Timestamped chronological log of all actions.
   - **Copy Log**: 1-click button to export the diagnostic log for easy troubleshooting.
 

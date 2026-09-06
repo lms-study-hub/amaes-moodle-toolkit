@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.7
+// @version      1.2.8
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.7";
+    const SCRIPT_VERSION = "v1.2.8";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -123,6 +123,10 @@
         const dotEl = document.getElementById('amaes-status-dot');
         if (dotEl) {
             dotEl.style.background = color || "var(--accent-green, #10b981)";
+            dotEl.style.boxShadow = `0 0 8px ${color || 'rgba(16,185,129,0.7)'}`;
+            dotEl.classList.remove('amaes-pulse');
+            void dotEl.offsetWidth;
+            dotEl.classList.add('amaes-pulse');
         }
 
         const countBadge = document.getElementById('amaes-log-count-badge');
@@ -753,11 +757,29 @@
                 subCode = codeMatch[1].toUpperCase();
             }
 
+            let courseId = '';
+            const linkElem = card.querySelector('a[href*="/course/view.php?id="], a[href*="id="]');
+            if (linkElem && linkElem.href) {
+                const idMatch = linkElem.href.match(/[?&]id=(\d+)/);
+                if (idMatch) courseId = idMatch[1];
+            }
+            if (!courseId) {
+                courseId = card.getAttribute('data-course-id') || card.getAttribute('data-courseid') || '';
+            }
+
+            const pathParts = window.location.pathname.split('/');
+            const basePrefix = pathParts.length > 2 && pathParts[1] ? `/${pathParts[1]}` : '';
+            const courseUrl = linkElem && linkElem.href ? linkElem.href : (courseId ? `${window.location.origin}${basePrefix}/course/view.php?id=${courseId}` : '');
+            const gradesUrl = courseId ? `${window.location.origin}${basePrefix}/grade/report/user/index.php?id=${courseId}` : '';
+
             if (subCode && subCode !== 'DEFAULT' && subCode !== 'GENERAL' && !seen.has(subCode)) {
                 seen.add(subCode);
                 const cached = getCachedAnswers(subCode);
                 results.push({
                     code: subCode,
+                    courseId,
+                    courseUrl,
+                    gradesUrl,
                     count: cached ? cached.length : 0,
                     title: cardText.split('\n')[0].trim()
                 });
@@ -1025,10 +1047,36 @@
             }
         }
 
+        let courseId = '';
+        if (window.location.pathname.includes('/course/view.php') || window.location.pathname.includes('/grade/report/')) {
+            courseId = new URLSearchParams(window.location.search).get('id') || '';
+        }
+        if (!courseId) {
+            const courseBreadcrumb = document.querySelector('a[href*="/course/view.php?id="]');
+            if (courseBreadcrumb && courseBreadcrumb.href) {
+                const m = courseBreadcrumb.href.match(/[?&]id=(\d+)/);
+                if (m) courseId = m[1];
+            }
+        }
+        if (!courseId) {
+            const gradeLink = document.querySelector('a[href*="/grade/report/user/index.php?id="]');
+            if (gradeLink && gradeLink.href) {
+                const m = gradeLink.href.match(/[?&]id=(\d+)/);
+                if (m) courseId = m[1];
+            }
+        }
+        if (!courseId) {
+            const bodyMatch = document.body.className ? document.body.className.match(/\bcourse-(\d+)\b/) : null;
+            if (bodyMatch && bodyMatch[1] !== '1') {
+                courseId = bodyMatch[1];
+            }
+        }
+
         return {
             fullTitle,
             subjectCode,
             subjectName,
+            courseId,
             currentActivityTitle
         };
     }
@@ -4305,11 +4353,13 @@
                 return true;
             }
 
-            // 3. Fallback: If no answers found in cloud DB, check if there is a known/stored static AMAUOED URL
-            const amauoedUrl = getStoredAmauoedUrl(code);
+            // 3. Fallback: Auto-discover AMAUOED link dynamically or use stored
+            const amauoedUrl = (typeof autoFindAmauoedLink === 'function')
+                ? await autoFindAmauoedLink(code)
+                : getStoredAmauoedUrl(code);
             const alreadyScraped = localStorage.getItem(`amaes_amauoed_scraped_${code}`);
             if (amauoedUrl && !alreadyScraped && typeof loadAllAmauoedAnswers === 'function') {
-                logDebug(`Auto-scraping static AMAUOED URL for missing course ${code}: ${amauoedUrl}`);
+                logDebug(`Auto-scraping AMAUOED URL for missing course ${code}: ${amauoedUrl}`);
                 const scraped = await loadAllAmauoedAnswers(amauoedUrl);
                 if (scraped && scraped.length > 0) {
                     localStorage.setItem(`amaes_amauoed_scraped_${code}`, '1');
@@ -4583,6 +4633,167 @@
 
     // Background Grades Report Answer Harvester
     let isHarvestingInProgress = false;
+
+    async function harvestQuizzesFromGradesDoc(gradesDoc, targetSubCode, courseTitle, statusCallback) {
+        let subCode = targetSubCode;
+
+        const table = gradesDoc.querySelector('.user-grade, table[summary="User report"], .generaltable');
+        if (!table) {
+            return { success: false, error: 'No grade table found', count: 0 };
+        }
+
+        if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
+            const catHeaders = table.querySelectorAll('th.category, tr.category, h2, h3, .cat_1');
+            for (const h of catHeaders) {
+                const m = (h.innerText || '').match(/(?:UGRD-|UGRD_)?([A-Z]{2,6}\d{3,4}[A-Z]?)/i);
+                if (m) {
+                    subCode = m[1].toUpperCase();
+                    break;
+                }
+            }
+        }
+        if (!subCode || subCode === 'DEFAULT') {
+            subCode = 'GENERAL';
+        }
+
+        // Scan all candidate rows across document or tables
+        const candidateRows = Array.from(gradesDoc.querySelectorAll('.user-grade tr, .generaltable tr, table.table tr, tr'));
+        const completedQuizzes = [];
+        const seenUrls = new Set();
+
+        candidateRows.forEach(r => {
+            const quizLink = r.querySelector('a[href*="/mod/quiz/"], a[href*="quiz"], a.gradeitemheader')
+                          || r.querySelector('.column-itemname a, th a, td:first-child a');
+            if (!quizLink) return;
+
+            const href = quizLink.getAttribute('href') || quizLink.href || '';
+            const rawTitle = quizLink.innerText.trim();
+            if (!rawTitle || (!href.includes('quiz') && !r.innerText.toLowerCase().includes('quiz'))) return;
+
+            // Prevent empty or unattempted rows
+            const rowText = r.innerText || '';
+            if (rowText.includes('( Empty )') || rowText.includes('(Empty)') || rowText.includes('( empty )')) return;
+
+            let fullQuizUrl = '';
+            try {
+                fullQuizUrl = new URL(href, window.location.origin).href;
+            } catch (e) {
+                fullQuizUrl = href;
+            }
+            if (!fullQuizUrl || seenUrls.has(fullQuizUrl)) return;
+
+            // Determine if the quiz has a completed grade
+            const gradeCell = r.querySelector('.column-grade, [headers*="grade"], td.grade');
+            const pctCell = r.querySelector('.column-percentage, [headers*="percentage"]');
+
+            let hasGrade = false;
+            let gradeStr = '';
+
+            if (gradeCell) {
+                const gText = gradeCell.innerText.trim();
+                if (gText && gText !== '-' && gText !== '–' && /\d/.test(gText)) {
+                    hasGrade = true;
+                    gradeStr = gText;
+                }
+            }
+
+            if (!hasGrade && pctCell) {
+                const pText = pctCell.innerText.trim();
+                if (pText && pText !== '-' && pText !== '–' && !pText.includes('0.00') && /\d/.test(pText)) {
+                    hasGrade = true;
+                    gradeStr = pText;
+                }
+            }
+
+            if (!hasGrade) {
+                const cells = Array.from(r.querySelectorAll('td, th'));
+                for (const c of cells) {
+                    if (c.contains(quizLink)) continue;
+                    const txt = c.innerText.trim();
+                    if (txt && txt !== '-' && txt !== '–' && !txt.includes('( Empty )') && !txt.includes('0.00 %') && !txt.startsWith('0-') && !txt.startsWith('0–') && /\b\d+(\.\d+)?\b/.test(txt)) {
+                        hasGrade = true;
+                        gradeStr = txt;
+                        break;
+                    }
+                }
+            }
+
+            if (hasGrade) {
+                seenUrls.add(fullQuizUrl);
+                const cleanTitle = rawTitle.replace(/^QUIZ\s+/i, '').replace(/\s+/g, ' ').trim();
+                completedQuizzes.push({
+                    title: cleanTitle || rawTitle,
+                    url: fullQuizUrl,
+                    grade: gradeStr
+                });
+            }
+        });
+
+        if (completedQuizzes.length === 0) {
+            return { success: false, count: 0, quizzes: 0, subCode };
+        }
+
+        let totalHarvested = 0;
+        let allQuestions = [];
+
+        for (let i = 0; i < completedQuizzes.length; i++) {
+            const qz = completedQuizzes[i];
+            if (statusCallback) statusCallback(i + 1, completedQuizzes.length, qz.title);
+            setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b> (${subCode} Score: ${qz.grade})...`, "var(--accent-cyan)", `Harvesting verified answer key`);
+
+            try {
+                const viewResp = await fetch(qz.url);
+                if (!viewResp.ok) continue;
+                const viewHtml = await viewResp.text();
+                const viewDoc = new DOMParser().parseFromString(viewHtml, 'text/html');
+
+                const reviewLinks = Array.from(viewDoc.querySelectorAll('a[href*="review.php"], a[href*="/mod/quiz/review.php"]'));
+                if (reviewLinks.length === 0) continue;
+
+                const seenReviewUrls = new Set();
+                for (const rLink of reviewLinks) {
+                    const rawHref = rLink.getAttribute('href') || rLink.href;
+                    if (!rawHref) continue;
+
+                    let reviewUrl = '';
+                    try {
+                        reviewUrl = new URL(rawHref, qz.url).href;
+                    } catch (e) {
+                        reviewUrl = rawHref;
+                    }
+
+                    // Append showall=1 to ensure all questions in attempt load on a single page
+                    if (!reviewUrl.includes('showall=')) {
+                        reviewUrl += (reviewUrl.includes('?') ? '&' : '?') + 'showall=1';
+                    }
+
+                    if (seenReviewUrls.has(reviewUrl)) continue;
+                    seenReviewUrls.add(reviewUrl);
+
+                    const reviewResp = await fetch(reviewUrl);
+                    if (!reviewResp.ok) continue;
+                    const reviewHtml = await reviewResp.text();
+                    const reviewDoc = new DOMParser().parseFromString(reviewHtml, 'text/html');
+
+                    const res = harvestFromReviewDOM(reviewDoc, subCode, qz.title, courseTitle || subCode);
+                    if (res.success && res.questions.length > 0) {
+                        allQuestions.push(...res.questions);
+                        totalHarvested += res.harvestedCount;
+                    }
+                }
+            } catch (err) {
+                console.warn(`Error harvesting ${qz.title}:`, err);
+            }
+        }
+
+        if (allQuestions.length > 0) {
+            mergeAnswersIntoCache(subCode, allQuestions, 'Grades-Harvester');
+            return { success: true, count: totalHarvested, quizzes: completedQuizzes.length, subCode };
+        }
+
+        return { success: false, count: 0, quizzes: completedQuizzes.length, subCode };
+    }
+
     async function executeGradesHarvester(statusCallback) {
         if (isHarvestingInProgress) {
             showToast("Harvester is already running in background...", 2500);
@@ -4591,217 +4802,120 @@
         isHarvestingInProgress = true;
 
         try {
-            let gradesDoc = document;
             const isDirectGradesPage = window.location.pathname.includes('/grade/report/user/index.php');
+            const isDashboard = window.location.pathname.includes('/my/') || window.location.pathname.includes('courses.php');
+            const courseInfo = detectCourseInfo();
 
-            if (!isDirectGradesPage) {
-                const gradesLink = document.querySelector('a[href*="/grade/report/user/index.php"]');
-                let gradesUrl = gradesLink ? gradesLink.href : null;
-
-                if (!gradesUrl) {
-                    const courseInfo = detectCourseInfo();
-                    const courseId = courseInfo.courseId || new URLSearchParams(window.location.search).get('id');
-                    if (courseId) {
-                        const pathParts = window.location.pathname.split('/');
-                        const basePrefix = pathParts.length > 2 && pathParts[1] ? `/${pathParts[1]}` : '';
-                        gradesUrl = `${window.location.origin}${basePrefix}/grade/report/user/index.php?id=${courseId}`;
-                    }
+            // Scenario 1: Directly on a Grade Report page
+            if (isDirectGradesPage) {
+                setLog("Scanning current Grade Report for completed quizzes...", "var(--accent-blue)", "Analyzing grade items");
+                const res = await harvestQuizzesFromGradesDoc(document, courseInfo.subjectCode, courseInfo.fullTitle, statusCallback);
+                if (res.success && res.count > 0) {
+                    setLog(`Harvest Complete! Loaded <b>${res.count}</b> verified answers into <b>${res.subCode}</b> DB.`, "var(--accent-green)", "Saved to local database");
+                    showToast(`Harvested ${res.count} verified answers! Saved to database.`, 4000);
+                    syncAutoQuizUI();
+                    return res;
+                } else {
+                    setLog("Grade report scan finished. No accessible reviews found or already cached.", "var(--accent-amber)", "Reviews may be restricted by instructor");
+                    showToast("No new answers harvested from this grade report.");
+                    return res;
                 }
+            }
 
-                if (!gradesUrl) {
-                    showToast("Open a course or Grades page first to scan completed quizzes!");
-                    return { success: false, error: 'No grades URL found' };
-                }
+            // Scenario 2: Inside a specific course or quiz page (courseId is known)
+            let singleGradesUrl = null;
+            const gradesLink = document.querySelector('a[href*="/grade/report/user/index.php"]');
+            if (gradesLink && gradesLink.href) {
+                singleGradesUrl = gradesLink.href;
+            } else if (courseInfo.courseId) {
+                const pathParts = window.location.pathname.split('/');
+                const basePrefix = pathParts.length > 2 && pathParts[1] ? `/${pathParts[1]}` : '';
+                singleGradesUrl = `${window.location.origin}${basePrefix}/grade/report/user/index.php?id=${courseInfo.courseId}`;
+            }
 
+            if (singleGradesUrl && !isDashboard) {
+                setLog(`Fetching course Grade Report for <b>${courseInfo.subjectCode || 'course'}</b>...`, "var(--accent-blue)", "Accessing grade history");
                 showToast("Fetching course Grade Report in background...", 2500);
-                setLog("Fetching course Grade Report in background...", "var(--accent-blue)");
 
                 try {
-                    const resp = await fetch(gradesUrl);
+                    const resp = await fetch(singleGradesUrl);
                     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
                     const html = await resp.text();
-                    gradesDoc = new DOMParser().parseFromString(html, 'text/html');
+                    const gradesDoc = new DOMParser().parseFromString(html, 'text/html');
+
+                    const res = await harvestQuizzesFromGradesDoc(gradesDoc, courseInfo.subjectCode, courseInfo.fullTitle, statusCallback);
+                    if (res.success && res.count > 0) {
+                        setLog(`Harvest Complete! Loaded <b>${res.count}</b> verified answers into <b>${res.subCode}</b> DB.`, "var(--accent-green)", "Saved to local database");
+                        showToast(`Harvested ${res.count} verified answers! Saved to database.`, 4000);
+                        syncAutoQuizUI();
+                        return res;
+                    } else {
+                        setLog("Grade report scan complete. No new accessible reviews found.", "var(--accent-amber)", "Quizzes may not have review attempts available");
+                        showToast("No accessible quiz reviews found to harvest for this course.");
+                        return res;
+                    }
                 } catch (e) {
                     showToast("Could not fetch Grade Report: " + e.message);
+                    setLog(`Grade Report fetch error: ${e.message}`, "var(--accent-pink)", "Check course permissions");
                     return { success: false, error: e.message };
                 }
             }
 
-            // Detect course subject code from table or context
-            const courseInfo = detectCourseInfo();
-            let subCode = courseInfo.subjectCode;
+            // Scenario 3: On Dashboard or Multi-Course View
+            const dashCourses = detectDashboardCourses().filter(c => c.courseId || c.gradesUrl);
+            if (dashCourses.length > 0) {
+                setLog(`Scanning Grade Reports for <b>${dashCourses.length} enrolled courses</b>...`, "var(--accent-blue)", "Batch harvesting past semester quizzes");
+                showToast(`Scanning grade reports for ${dashCourses.length} enrolled courses...`, 3000);
 
-            const table = gradesDoc.querySelector('.user-grade, table[summary="User report"], .generaltable');
-            if (!table) {
-                showToast("No grade report table found.");
-                return { success: false, error: 'No grade table found' };
-            }
+                let totalHarvested = 0;
+                let totalQuizzes = 0;
 
-            if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
-                const catHeaders = table.querySelectorAll('th.category, tr.category, h2, h3, .cat_1');
-                for (const h of catHeaders) {
-                    const m = (h.innerText || '').match(/(?:UGRD-|UGRD_)?([A-Z]{2,6}\d{3,4}[A-Z]?)/i);
-                    if (m) {
-                        subCode = m[1].toUpperCase();
-                        break;
-                    }
-                }
-            }
-            if (!subCode || subCode === 'DEFAULT' || subCode === 'GENERAL') {
-                subCode = courseInfo.courseId ? (`COURSE_${courseInfo.courseId}`) : 'GENERAL';
-            }
+                for (let i = 0; i < dashCourses.length; i++) {
+                    const c = dashCourses[i];
+                    const gradesUrl = c.gradesUrl || `${window.location.origin}/grade/report/user/index.php?id=${c.courseId}`;
+                    if (statusCallback) statusCallback(i + 1, dashCourses.length, `Course: ${c.code}`);
+                    setLog(`[${i + 1}/${dashCourses.length}] Scanning <b>${c.code}</b> Grade Report...`, "var(--accent-cyan)", `Checking completed quizzes for ${c.code}`);
 
-            // Scan all candidate rows across document or tables
-            const candidateRows = Array.from(gradesDoc.querySelectorAll('.user-grade tr, .generaltable tr, table.table tr, tr'));
-            const completedQuizzes = [];
-            const seenUrls = new Set();
-
-            candidateRows.forEach(r => {
-                const quizLink = r.querySelector('a[href*="/mod/quiz/"], a[href*="quiz"], a.gradeitemheader')
-                              || r.querySelector('.column-itemname a, th a, td:first-child a');
-                if (!quizLink) return;
-
-                const href = quizLink.getAttribute('href') || quizLink.href || '';
-                const rawTitle = quizLink.innerText.trim();
-                if (!rawTitle || (!href.includes('quiz') && !r.innerText.toLowerCase().includes('quiz'))) return;
-
-                // Prevent empty or unattempted rows
-                const rowText = r.innerText || '';
-                if (rowText.includes('( Empty )') || rowText.includes('(Empty)') || rowText.includes('( empty )')) return;
-
-                let fullQuizUrl = '';
-                try {
-                    fullQuizUrl = new URL(href, window.location.origin).href;
-                } catch (e) {
-                    fullQuizUrl = href;
-                }
-                if (!fullQuizUrl || seenUrls.has(fullQuizUrl)) return;
-
-                // Determine if the quiz has a completed grade
-                const gradeCell = r.querySelector('.column-grade, [headers*="grade"], td.grade');
-                const pctCell = r.querySelector('.column-percentage, [headers*="percentage"]');
-
-                let hasGrade = false;
-                let gradeStr = '';
-
-                if (gradeCell) {
-                    const gText = gradeCell.innerText.trim();
-                    if (gText && gText !== '-' && gText !== '–' && /\d/.test(gText)) {
-                        hasGrade = true;
-                        gradeStr = gText;
-                    }
-                }
-
-                if (!hasGrade && pctCell) {
-                    const pText = pctCell.innerText.trim();
-                    if (pText && pText !== '-' && pText !== '–' && !pText.includes('0.00') && /\d/.test(pText)) {
-                        hasGrade = true;
-                        gradeStr = pText;
-                    }
-                }
-
-                if (!hasGrade) {
-                    const cells = Array.from(r.querySelectorAll('td, th'));
-                    for (const c of cells) {
-                        if (c.contains(quizLink)) continue;
-                        const txt = c.innerText.trim();
-                        if (txt && txt !== '-' && txt !== '–' && !txt.includes('( Empty )') && !txt.includes('0.00 %') && !txt.startsWith('0-') && !txt.startsWith('0–') && /\b\d+(\.\d+)?\b/.test(txt)) {
-                            hasGrade = true;
-                            gradeStr = txt;
-                            break;
+                    try {
+                        const resp = await fetch(gradesUrl);
+                        if (!resp.ok) continue;
+                        const html = await resp.text();
+                        const gDoc = new DOMParser().parseFromString(html, 'text/html');
+                        const res = await harvestQuizzesFromGradesDoc(gDoc, c.code, c.title, (curQ, totQ, qTitle) => {
+                            if (statusCallback) statusCallback(i + 1, dashCourses.length, `[${curQ}/${totQ}] ${qTitle}`);
+                        });
+                        if (res.success && res.count > 0) {
+                            totalHarvested += res.count;
+                            totalQuizzes += res.quizzes || 0;
                         }
+                    } catch (err) {
+                        logDebug(`Error scanning grades for ${c.code}: ${err.message}`);
                     }
                 }
 
-                if (hasGrade) {
-                    seenUrls.add(fullQuizUrl);
-                    const cleanTitle = rawTitle.replace(/^QUIZ\s+/i, '').replace(/\s+/g, ' ').trim();
-                    completedQuizzes.push({
-                        title: cleanTitle || rawTitle,
-                        url: fullQuizUrl,
-                        grade: gradeStr
-                    });
-                }
-            });
-
-            if (completedQuizzes.length === 0) {
-                showToast("No graded quizzes found in this report.");
-                setLog("No completed quiz attempts found in Grade Report.", "var(--accent-amber)");
-                return { success: false, count: 0 };
-            }
-
-            showToast(`Found ${completedQuizzes.length} completed quizzes. Harvesting answers...`, 3000);
-            setLog(`Scanning <b>${completedQuizzes.length}</b> completed quizzes for <b>${subCode}</b>...`, "var(--accent-blue)");
-
-            let totalHarvested = 0;
-            let allQuestions = [];
-
-            for (let i = 0; i < completedQuizzes.length; i++) {
-                const qz = completedQuizzes[i];
-                if (statusCallback) statusCallback(i + 1, completedQuizzes.length, qz.title);
-                setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b> (Score: ${qz.grade})...`, "var(--accent-cyan)");
-
-                try {
-                    const viewResp = await fetch(qz.url);
-                    if (!viewResp.ok) continue;
-                    const viewHtml = await viewResp.text();
-                    const viewDoc = new DOMParser().parseFromString(viewHtml, 'text/html');
-
-                    const reviewLinks = Array.from(viewDoc.querySelectorAll('a[href*="review.php"], a[href*="/mod/quiz/review.php"]'));
-                    if (reviewLinks.length === 0) continue;
-
-                    const seenReviewUrls = new Set();
-                    for (const rLink of reviewLinks) {
-                        const rawHref = rLink.getAttribute('href') || rLink.href;
-                        if (!rawHref) continue;
-
-                        let reviewUrl = '';
-                        try {
-                            reviewUrl = new URL(rawHref, qz.url).href;
-                        } catch (e) {
-                            reviewUrl = rawHref;
-                        }
-
-                        // Append showall=1 to ensure all questions in attempt load on a single page
-                        if (!reviewUrl.includes('showall=')) {
-                            reviewUrl += (reviewUrl.includes('?') ? '&' : '?') + 'showall=1';
-                        }
-
-                        if (seenReviewUrls.has(reviewUrl)) continue;
-                        seenReviewUrls.add(reviewUrl);
-
-                        const reviewResp = await fetch(reviewUrl);
-                        if (!reviewResp.ok) continue;
-                        const reviewHtml = await reviewResp.text();
-                        const reviewDoc = new DOMParser().parseFromString(reviewHtml, 'text/html');
-
-                        const res = harvestFromReviewDOM(reviewDoc, subCode, qz.title, courseInfo.fullTitle || subCode);
-                        if (res.success && res.questions.length > 0) {
-                            allQuestions.push(...res.questions);
-                            totalHarvested += res.harvestedCount;
-                        }
-                    }
-                } catch (err) {
-                    console.warn(`Error harvesting ${qz.title}:`, err);
+                if (totalHarvested > 0) {
+                    setLog(`Harvest Complete! Loaded <b>${totalHarvested}</b> verified answers across ${dashCourses.length} courses.`, "var(--accent-green)", "All enrolled subjects updated in database");
+                    showToast(`Harvest complete! Loaded ${totalHarvested} verified answers across ${dashCourses.length} courses!`, 4500);
+                    injectDashboardCourseBadges();
+                    syncAutoQuizUI();
+                    return { success: true, count: totalHarvested, quizzes: totalQuizzes, courses: dashCourses.length };
+                } else {
+                    setLog(`Scanned ${dashCourses.length} courses. All available answers already cached or reviews restricted.`, "var(--accent-cyan)", "Answers ready in local database");
+                    showToast(`Scan complete for ${dashCourses.length} courses. All up to date!`, 3500);
+                    injectDashboardCourseBadges();
+                    return { success: true, count: 0, courses: dashCourses.length };
                 }
             }
 
-            if (allQuestions.length > 0) {
-                mergeAnswersIntoCache(subCode, allQuestions, 'Grades-Harvester');
-                setLog(`Harvest Complete! Loaded <b>${totalHarvested}</b> verified answers from ${completedQuizzes.length} quizzes into <b>${subCode}</b> DB.`, "var(--accent-green)");
-                showToast(`Harvested ${totalHarvested} verified answers! Saved to database.`, 4000);
+            // Fallback: If no course can be identified
+            showToast("Open a course or your Dashboard first to scan completed quizzes!", 3500);
+            setLog("<b>Harvest Unavailable:</b> Open a course or your Dashboard first.", "var(--accent-pink)", "Plan: Go to Dashboard or Course page to harvest");
+            return { success: false, error: 'No course or dashboard found' };
 
-                syncAutoQuizUI();
-                const fresh = getCachedAnswers(subCode);
-                const lbl = document.getElementById('fetch-btn-label');
-                if (lbl && fresh) lbl.innerText = `Refresh Answers (${fresh.length} cached)`;
-
-                return { success: true, count: totalHarvested, quizzes: completedQuizzes.length };
-            } else {
-                showToast("No reviews could be opened. Reviews might be restricted by instructor.");
-                setLog("Completed quiz reviews were not accessible.", "var(--accent-amber)");
-                return { success: false, count: 0 };
-            }
+        } catch (e) {
+            showToast("Harvester error: " + e.message);
+            setLog(`Harvester error: ${e.message}`, "var(--accent-pink)", "Check network or permissions");
+            return { success: false, error: e.message };
         } finally {
             isHarvestingInProgress = false;
         }
@@ -6230,6 +6344,15 @@
                     z-index: 2;
                 }
 
+                @keyframes amaes-dot-pulse {
+                    0% { transform: scale(1); filter: brightness(1); }
+                    50% { transform: scale(1.5); filter: brightness(1.35); }
+                    100% { transform: scale(1); filter: brightness(1); }
+                }
+                .amaes-pulse {
+                    animation: amaes-dot-pulse 0.65s cubic-bezier(0.4, 0, 0.2, 1);
+                }
+
                 .amaes-inline-btn {
                     display: inline-flex !important;
                     align-items: center !important;
@@ -6649,6 +6772,7 @@
                 autoHighlightQuiz = chkAutoHlQuiz.checked;
                 localStorage.setItem('amaes_auto_highlight_quiz', autoHighlightQuiz);
                 showToast(`Highlight Answers: ${autoHighlightQuiz ? 'Enabled' : 'Disabled'}`);
+                setLog(`Highlight Answers: <b>${autoHighlightQuiz ? 'ON' : 'OFF'}</b>`, autoHighlightQuiz ? "var(--accent-green)" : "var(--accent-amber)", autoHighlightQuiz ? "Visual answer badges enabled on quizzes" : "Badges hidden");
                 if (autoHighlightQuiz && checkIsQuizAttemptPage()) {
                     const cached = getCachedAnswers(subCode);
                     if (cached && cached.length > 0) {
@@ -6667,6 +6791,7 @@
                 copyIncludeConfidence = chkCopyConfidence.checked;
                 localStorage.setItem('amaes_copy_include_confidence', copyIncludeConfidence);
                 showToast(`Include DB Hints: ${copyIncludeConfidence ? 'Enabled' : 'Disabled'}`);
+                setLog(`Include DB Hints on Copy: <b>${copyIncludeConfidence ? 'ON' : 'OFF'}</b>`, "var(--accent-blue)", copyIncludeConfidence ? "Prompt will include verified answer hints & confidence" : "Question & choices only");
             };
         }
 
@@ -6677,6 +6802,7 @@
                 localStorage.setItem('amaes_show_in_question_ai_btns', showInQuestionAiBtns);
                 injectQuestionCopyButtons();
                 showToast(`In-question buttons: ${showInQuestionAiBtns ? 'Shown' : 'Hidden'}`);
+                setLog(`In-Question Action Buttons: <b>${showInQuestionAiBtns ? 'ON' : 'OFF'}</b>`, "var(--accent-blue)", showInQuestionAiBtns ? "Injected beside each question box" : "Buttons hidden");
             };
         }
 
@@ -6685,6 +6811,7 @@
                 autoPickQuiz = chkAutoPick.checked;
                 localStorage.setItem('amaes_auto_pick_quiz', autoPickQuiz);
                 showToast(`Auto-Pick: ${autoPickQuiz ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-Pick Answers: <b>${autoPickQuiz ? 'ON (Auto-select verified)' : 'OFF (Companion Mode)'}</b>`, autoPickQuiz ? "var(--accent-green)" : "var(--accent-amber)", autoPickQuiz ? "Will auto-select answers on quiz attempts" : "Highlights only; manual clicks required");
                 if (autoPickQuiz && checkIsQuizAttemptPage()) runAutoQuizSolver();
             };
         }
@@ -6694,6 +6821,7 @@
                 autoNextQuiz = chkAutoNext.checked;
                 localStorage.setItem('amaes_auto_next_quiz', autoNextQuiz);
                 showToast(`Auto-Next: ${autoNextQuiz ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-Next Navigation: <b>${autoNextQuiz ? 'ON (Auto-advancing)' : 'OFF (Manual)'}</b>`, autoNextQuiz ? "var(--accent-green)" : "var(--accent-amber)", autoNextQuiz ? "Advances to next question once answered" : "Manual next button click required");
                 if (autoNextQuiz && checkIsQuizAttemptPage()) runAutoQuizSolver();
             };
         }
@@ -6704,6 +6832,7 @@
                 smartSkipQuiz = chkSmartSkip.checked;
                 localStorage.setItem('amaes_smart_skip_quiz', smartSkipQuiz);
                 showToast(`Smart Skip: ${smartSkipQuiz ? 'Enabled' : 'Disabled'}`);
+                setLog(`Smart Skip Unverified: <b>${smartSkipQuiz ? 'ON (Pause on unverified)' : 'OFF'}</b>`, smartSkipQuiz ? "var(--accent-green)" : "var(--accent-amber)", smartSkipQuiz ? "Pauses auto-next on unverified questions" : "Attempts all matching questions");
             };
         }
 
@@ -6713,6 +6842,7 @@
                 autoMinimizeQuiz = chkAutoMinQuiz.checked;
                 localStorage.setItem('amaes_auto_min_quiz', autoMinimizeQuiz);
                 showToast(`Auto-minimize during quizzes: ${autoMinimizeQuiz ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-Minimize During Quizzes: <b>${autoMinimizeQuiz ? 'ON' : 'OFF'}</b>`, autoMinimizeQuiz ? "var(--accent-cyan)" : "var(--accent-amber)", autoMinimizeQuiz ? "Minimizes panel upon entering quiz" : "Panel remains open");
             };
         }
 
@@ -6722,7 +6852,7 @@
                 enableKeyboardShortcuts = chkKeyboardShortcuts.checked;
                 localStorage.setItem('amaes_enable_hotkeys', enableKeyboardShortcuts);
                 showToast(`Keyboard Navigation: ${enableKeyboardShortcuts ? 'Enabled' : 'Disabled'}`);
-                setLog(`Keyboard shortcuts ${enableKeyboardShortcuts ? '<b>enabled</b> (N, Space, 1-4, C, P, H)' : '<b>disabled</b>'}`, "var(--accent-blue)");
+                setLog(`Keyboard Navigation: <b>${enableKeyboardShortcuts ? 'ON' : 'OFF'}</b>`, enableKeyboardShortcuts ? "var(--accent-blue)" : "var(--accent-amber)", enableKeyboardShortcuts ? "N, Space, 1-4, C, P, H active" : "Key navigation disabled");
             };
         }
 
@@ -6730,6 +6860,8 @@
             chkAiPromptHint.onchange = () => {
                 aiPromptHint = chkAiPromptHint.checked;
                 localStorage.setItem('amaes_ai_prompt_hint', aiPromptHint);
+                showToast(`Strict AI Prompt: ${aiPromptHint ? 'Enabled' : 'Disabled'}`);
+                setLog(`Strict AI Prompt Format: <b>${aiPromptHint ? 'ON (1-Shot Output)' : 'OFF (Standard)'}</b>`, "var(--accent-blue)", "Directs AI to respond with choice letter only");
             };
         }
 
@@ -7213,39 +7345,140 @@
         if (btnCloudSync) {
             btnCloudSync.onclick = async () => {
                 let targetCode = subCode;
+                const dashCourses = detectDashboardCourses();
+
+                // Dashboard batch sync if no specific course is selected
+                if ((!targetCode || targetCode === 'DEFAULT' || targetCode === 'GENERAL') && dashCourses.length > 0) {
+                    btnCloudSync.disabled = true;
+                    btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing Courses...</span>`;
+                    showToast(`Syncing community & AMAUOED databases for ${dashCourses.length} courses...`, 3000);
+                    setLog(`Syncing Cloud & AMAUOED databases for <b>${dashCourses.length} courses</b>...`, "var(--accent-blue)", "Connecting to Community Cloud and amauoed.com");
+
+                    let totalSynced = 0;
+                    let coursesProcessed = 0;
+
+                    for (let i = 0; i < dashCourses.length; i++) {
+                        const c = dashCourses[i];
+                        btnCloudSync.innerHTML = `${ICONS.cloud} <span>[${i + 1}/${dashCourses.length}] ${c.code}...</span>`;
+                        setLog(`[${i + 1}/${dashCourses.length}] Syncing <b>${c.code}</b> from Cloud Hub...`, "var(--accent-cyan)", `Checking database for ${c.code}`);
+
+                        try {
+                            let res = null;
+                            try {
+                                res = await syncAnswersFromCloud(c.code);
+                            } catch (e) {
+                                res = null;
+                            }
+
+                            if (res && res.count > 0) {
+                                totalSynced += res.count;
+                                coursesProcessed++;
+                            } else {
+                                const amauoedLink = await autoFindAmauoedLink(c.code);
+                                if (amauoedLink) {
+                                    setLog(`[${i + 1}/${dashCourses.length}] Scraping AMAUOED for <b>${c.code}</b>...`, "var(--accent-purple)", `Crawling questions from ${amauoedLink}`);
+                                    const scraped = await loadAllAmauoedAnswers(amauoedLink);
+                                    if (scraped && scraped.length > 0) {
+                                        mergeAnswersIntoCache(c.code, scraped, 'AMAUOED');
+                                        totalSynced += scraped.length;
+                                        coursesProcessed++;
+                                    }
+                                }
+                            }
+                        } catch (err) {
+                            logDebug(`Cloud sync error for ${c.code}: ${err.message}`);
+                        }
+                    }
+
+                    showToast(`Cloud Sync Complete! Loaded ${totalSynced} answers across ${dashCourses.length} courses.`, 4000);
+                    setLog(`Cloud Sync Complete! Loaded <b>${totalSynced}</b> answers across ${dashCourses.length} courses.`, "var(--accent-green)", "All courses indexed in local database");
+                    btnCloudSync.innerHTML = `${ICONS.check} <span>Synced ${totalSynced} Qs!</span>`;
+                    injectDashboardCourseBadges();
+                    setTimeout(() => {
+                        btnCloudSync.disabled = false;
+                        btnCloudSync.innerHTML = `${ICONS.cloudDownload} <span>Cloud Sync</span>`;
+                    }, 3500);
+                    return;
+                }
+
                 if (!targetCode || targetCode === 'DEFAULT' || targetCode === 'GENERAL') {
                     const entered = prompt("Enter Subject Code to sync from Cloud (e.g. CS6301, ITE6301):", (detectedCodes && detectedCodes[0]) || "");
                     if (!entered || !entered.trim()) {
-                        setLog("Cloud sync cancelled (no subject code specified).", "var(--accent-amber)");
+                        setLog("Cloud sync cancelled (no subject code specified).", "var(--accent-amber)", "Select a subject code to sync");
+                        showToast("Cloud sync cancelled.");
                         return;
                     }
                     targetCode = entered.trim().toUpperCase();
                     subCode = targetCode;
                 }
+
                 btnCloudSync.disabled = true;
-                btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing...</span>`;
-                setLog(`Connecting to community cloud database for <b>${targetCode}</b>...`);
+                btnCloudSync.innerHTML = `${ICONS.cloud} <span>Syncing ${targetCode}...</span>`;
+                showToast(`Connecting to Cloud Database for ${targetCode}...`, 2500);
+                setLog(`Connecting to community cloud database for <b>${targetCode}</b>...`, "var(--accent-blue)", `Checking GitHub repository for ${targetCode}`);
 
                 try {
-                    const res = await syncAnswersFromCloud(targetCode);
-                    const finalDb = getCachedAnswers(targetCode) || [];
-                    showToast(`Cloud Sync Success! (${res.count} community answers loaded)`);
-                    setLog(`Synced <b>${res.count}</b> answers for <b>${targetCode}</b>! (Total: <b>${finalDb.length}</b>)`, "var(--accent-green)");
-
-                    if (fetchBtnLabel) {
-                        fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
+                    let res = null;
+                    try {
+                        res = await syncAnswersFromCloud(targetCode);
+                    } catch (cloudErr) {
+                        res = null;
                     }
 
-                    updateTermCoverageUI(targetCode);
+                    if (res && res.count > 0) {
+                        const finalDb = getCachedAnswers(targetCode) || [];
+                        showToast(`Cloud Sync Success! (${res.count} community answers loaded)`);
+                        setLog(`Synced <b>${res.count}</b> answers for <b>${targetCode}</b>! (Total: <b>${finalDb.length}</b>)`, "var(--accent-green)", "Verified database cached and active");
+                        btnCloudSync.innerHTML = `${ICONS.check} <span>Synced ${res.count} Qs!</span>`;
 
-                    if (checkIsQuizPage()) {
-                        highlightQuizAnswers(finalDb, false);
+                        if (fetchBtnLabel) {
+                            fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
+                        }
+
+                        updateTermCoverageUI(targetCode);
+
+                        if (checkIsQuizPage()) {
+                            highlightQuizAnswers(finalDb, false);
+                        }
+                    } else {
+                        // Fallback to AMAUOED auto-discovery!
+                        setLog(`Cloud repo has no answers for <b>${targetCode}</b> yet. Checking AMAUOED...`, "var(--accent-purple)", `Searching amauoed.com catalog for ${targetCode}`);
+                        showToast(`No cloud answers found for ${targetCode}. Checking AMAUOED...`, 2500);
+                        btnCloudSync.innerHTML = `${ICONS.rotateCcw} <span>Checking AMAUOED...</span>`;
+
+                        const amauoedUrl = await autoFindAmauoedLink(targetCode);
+                        if (amauoedUrl) {
+                            btnCloudSync.innerHTML = `${ICONS.rotateCcw} <span>Scraping AMAUOED...</span>`;
+                            setLog(`Auto-scraping AMAUOED study guide for <b>${targetCode}</b>...`, "var(--accent-blue)", `Crawling ${amauoedUrl}`);
+                            const scraped = await loadAllAmauoedAnswers(amauoedUrl);
+                            if (scraped && scraped.length > 0) {
+                                mergeAnswersIntoCache(targetCode, scraped, 'AMAUOED');
+                                const finalDb = getCachedAnswers(targetCode) || [];
+                                showToast(`AMAUOED Fallback: Loaded ${scraped.length} questions for ${targetCode}!`, 4000);
+                                setLog(`Scraped <b>${scraped.length}</b> questions from AMAUOED for <b>${targetCode}</b>!`, "var(--accent-green)", "Cached in local database");
+                                btnCloudSync.innerHTML = `${ICONS.check} <span>Scraped ${scraped.length} Qs!</span>`;
+                                if (fetchBtnLabel) fetchBtnLabel.innerText = `Refresh Answers (${finalDb.length} cached)`;
+                                updateTermCoverageUI(targetCode);
+                                if (checkIsQuizPage()) highlightQuizAnswers(finalDb, false);
+                            } else {
+                                showToast(`No questions found on AMAUOED for ${targetCode}. Will harvest when you take quizzes!`, 4000);
+                                setLog(`No questions found for <b>${targetCode}</b> on AMAUOED.`, "var(--accent-amber)", "Answers will auto-harvest as you complete quizzes");
+                                btnCloudSync.innerHTML = `<span>No Answers Yet</span>`;
+                            }
+                        } else {
+                            showToast(`Course ${targetCode} is not in Cloud Hub yet. It will auto-harvest as you quiz!`, 4000);
+                            setLog(`No answers found on Cloud or AMAUOED for <b>${targetCode}</b>.`, "var(--accent-amber)", "Answers will auto-harvest from quiz attempts and reviews");
+                            btnCloudSync.innerHTML = `<span>No Answers Yet</span>`;
+                        }
                     }
                 } catch (err) {
-                    setLog(`Cloud Sync Note: ${err.message}. You can set your GitHub repository link via <b>Config</b>.`, "var(--accent-amber)");
+                    showToast(`Cloud Sync error: ${err.message}`);
+                    setLog(`Cloud Sync Note: ${err.message}`, "var(--accent-amber)", "You can set custom database link via Config");
                 } finally {
-                    btnCloudSync.disabled = false;
-                    btnCloudSync.innerHTML = `${ICONS.cloudDownload} <span>Cloud Sync</span>`;
+                    setTimeout(() => {
+                        btnCloudSync.disabled = false;
+                        btnCloudSync.innerHTML = `${ICONS.cloudDownload} <span>Cloud Sync</span>`;
+                    }, 3500);
                 }
             };
         }
@@ -7255,6 +7488,8 @@
             btnHarvestGradesDb.onclick = () => {
                 btnHarvestGradesDb.disabled = true;
                 btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>Scanning Quizzes...</span>`;
+                showToast("Scanning completed quizzes for verified answers...", 2500);
+                setLog("Starting quiz harvest from Grade Reports...", "var(--accent-blue)", "Scanning completed attempts for verified answers");
                 executeGradesHarvester((curr, total, name) => {
                     btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>[${curr}/${total}] ${name}...</span>`;
                 }).then(res => {
@@ -7262,6 +7497,10 @@
                         btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>Harvested ${res.count} Qs!</span>`;
                     } else if (res && res.inProgress) {
                         btnHarvestGradesDb.innerHTML = `${ICONS.clock} <span>In Progress</span>`;
+                    } else if (res && res.success && res.count === 0) {
+                        btnHarvestGradesDb.innerHTML = `${ICONS.check} <span>All Up to Date</span>`;
+                        showToast("Grade report scan complete. All completed quizzes are already in database!", 3500);
+                        setLog("Grade report scan complete. All available quizzes already cached.", "var(--accent-cyan)", "Answers ready in database");
                     } else {
                         btnHarvestGradesDb.innerHTML = `<span>Finished</span>`;
                     }
@@ -7324,7 +7563,7 @@
                 autoHarvestGrades = e.target.checked;
                 localStorage.setItem('amaes_auto_harvest_grades', autoHarvestGrades);
                 showToast(`Auto-harvest past quizzes: ${autoHarvestGrades ? 'Enabled' : 'Disabled'}`);
-                setLog(`Auto-harvest past quizzes from Grades: <b>${autoHarvestGrades ? 'ON' : 'OFF'}</b>`, autoHarvestGrades ? "var(--accent-green)" : "var(--accent-amber)");
+                setLog(`Auto-Harvest past quizzes from Grades: <b>${autoHarvestGrades ? 'ON' : 'OFF'}</b>`, autoHarvestGrades ? "var(--accent-green)" : "var(--accent-amber)", autoHarvestGrades ? "Scans completed quizzes for verified teacher answers" : "Manual harvest only");
             };
         }
 
@@ -7334,7 +7573,7 @@
                 autoCloudSync = e.target.checked;
                 localStorage.setItem('amaes_auto_cloud_sync', autoCloudSync);
                 showToast(`Auto-pull community answers: ${autoCloudSync ? 'Enabled' : 'Disabled'}`);
-                setLog(`Auto-pull community answers on course open: <b>${autoCloudSync ? 'ON' : 'OFF'}</b>`, autoCloudSync ? "var(--accent-green)" : "var(--accent-amber)");
+                setLog(`Auto-pull community answers on course open: <b>${autoCloudSync ? 'ON' : 'OFF'}</b>`, autoCloudSync ? "var(--accent-green)" : "var(--accent-amber)", autoCloudSync ? "Auto-fetches answers upon opening any enrolled course" : "Manual sync only");
             };
         }
 
@@ -7344,7 +7583,7 @@
                 autoCommunityShare = e.target.checked;
                 localStorage.setItem('amaes_auto_community_share', autoCommunityShare);
                 showToast(`Auto-share to Community Hub: ${autoCommunityShare ? 'Enabled' : 'Disabled'}`);
-                setLog(`Auto-share verified answers on Review: <b>${autoCommunityShare ? 'ON' : 'OFF'}</b>`, autoCommunityShare ? "var(--accent-green)" : "var(--accent-amber)");
+                setLog(`Auto-share verified answers on Review: <b>${autoCommunityShare ? 'ON' : 'OFF'}</b>`, autoCommunityShare ? "var(--accent-green)" : "var(--accent-amber)", autoCommunityShare ? "Anonymously contributes new teacher keys on review" : "Sharing disabled");
             };
         }
 
@@ -7354,7 +7593,7 @@
                 autoScrapeAmauoed = e.target.checked;
                 localStorage.setItem('amaes_auto_scrape_amauoed', autoScrapeAmauoed);
                 showToast(`Auto-scrape AMAUOED: ${autoScrapeAmauoed ? 'Enabled' : 'Disabled'}`);
-                setLog(`Auto-scrape AMAUOED when missing: <b>${autoScrapeAmauoed ? 'ON' : 'OFF'}</b>`, autoScrapeAmauoed ? "var(--accent-purple)" : "var(--accent-amber)");
+                setLog(`Auto-scrape AMAUOED when missing: <b>${autoScrapeAmauoed ? 'ON' : 'OFF'}</b>`, autoScrapeAmauoed ? "var(--accent-purple)" : "var(--accent-amber)", autoScrapeAmauoed ? "Discovers and crawls online study guides when missing" : "Scraping disabled");
             };
         }
 
@@ -7362,6 +7601,7 @@
             chkAutoDlJson.onchange = (e) => {
                 localStorage.setItem('amaes_auto_dl_json', e.target.checked);
                 showToast(`Auto-download JSON: ${e.target.checked ? 'Enabled' : 'Disabled'}`);
+                setLog(`Auto-Download JSON Backups: <b>${e.target.checked ? 'ON' : 'OFF'}</b>`, e.target.checked ? "var(--accent-blue)" : "var(--accent-amber)", e.target.checked ? "Saves backup JSON on quiz harvest" : "Backups disabled");
             };
         }
 
@@ -7726,20 +7966,31 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
         injectDashboardGuideBanner();
         checkForScriptUpdates(false);
 
-        // Auto-Harvest past quizzes: scan Grade Report once per session per course
+        // Auto-Harvest past quizzes: scan Grade Report once per session per course or all courses on dashboard
         if (autoHarvestGrades) {
             try {
                 const isGradesPage = window.location.pathname.includes('/grade/report/user/index.php');
                 const isCoursePage = window.location.pathname.includes('/course/view.php');
-                if (isGradesPage || isCoursePage) {
+                const isDashboard = window.location.pathname.includes('/my/') || window.location.pathname.includes('courses.php');
+
+                if (isDashboard) {
+                    if (!sessionStorage.getItem('amaes_dash_harvested')) {
+                        sessionStorage.setItem('amaes_dash_harvested', '1');
+                        setTimeout(() => {
+                            setLog("Auto-Harvest: Scanning all enrolled courses in background...", "var(--accent-blue)", "Auto-populating database with past verified answers");
+                            executeGradesHarvester();
+                        }, 2500);
+                    }
+                } else if (isGradesPage || isCoursePage) {
                     const cInfo = detectCourseInfo();
                     const courseKey = (cInfo && cInfo.subjectCode && cInfo.subjectCode !== 'DEFAULT' && cInfo.subjectCode !== 'GENERAL')
                         ? cInfo.subjectCode
-                        : (new URLSearchParams(window.location.search).get('id') || 'grades');
+                        : (cInfo?.courseId || new URLSearchParams(window.location.search).get('id') || 'grades');
                     const sessKey = `amaes_grades_harvested_${courseKey}`;
                     if (!sessionStorage.getItem(sessKey)) {
                         sessionStorage.setItem(sessKey, '1');
                         setTimeout(() => {
+                            setLog(`Auto-Harvest: Scanning past quizzes for <b>${courseKey}</b>...`, "var(--accent-blue)");
                             executeGradesHarvester();
                         }, 1800);
                     }
@@ -7768,8 +8019,19 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                                 highlightQuizAnswers(fresh, false);
                             }
                         }
-                    }).catch(err => {
+                    }).catch(async (err) => {
                         logDebug(`Auto cloud sync note for ${sc}: ${err.message}`);
+                        if (autoScrapeAmauoed) {
+                            const link = await autoFindAmauoedLink(sc);
+                            if (link) {
+                                const scraped = await loadAllAmauoedAnswers(link);
+                                if (scraped && scraped.length > 0) {
+                                    mergeAnswersIntoCache(sc, scraped, 'AMAUOED');
+                                    showToast(`Auto-scraped ${scraped.length} answers from AMAUOED for ${sc}!`);
+                                    setLog(`Auto-scraped <b>${scraped.length}</b> answers for <b>${sc}</b> from AMAUOED.`, "var(--accent-green)");
+                                }
+                            }
+                        }
                     });
                 }
             } catch (e) {
@@ -7789,8 +8051,18 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                                     if (res && res.count > 0) {
                                         injectDashboardCourseBadges();
                                     }
-                                }).catch(e => {
+                                }).catch(async (e) => {
                                     logDebug(`Dashboard auto-sync note for ${c.code}: ${e.message}`);
+                                    if (autoScrapeAmauoed) {
+                                        const link = await autoFindAmauoedLink(c.code);
+                                        if (link) {
+                                            const scraped = await loadAllAmauoedAnswers(link);
+                                            if (scraped && scraped.length > 0) {
+                                                mergeAnswersIntoCache(c.code, scraped, 'AMAUOED');
+                                                injectDashboardCourseBadges();
+                                            }
+                                        }
+                                    }
                                 });
                             }
                         });
@@ -7818,8 +8090,18 @@ setupPersistentAccordion('mod-marker-header', 'mod-marker-body', 'mod-marker-arr
                                     if (res && res.count > 0) {
                                         injectDashboardCourseBadges();
                                     }
-                                }).catch(e => {
+                                }).catch(async (e) => {
                                     logDebug(`Dashboard observer auto-sync note for ${c.code}: ${e.message}`);
+                                    if (autoScrapeAmauoed) {
+                                        const link = await autoFindAmauoedLink(c.code);
+                                        if (link) {
+                                            const scraped = await loadAllAmauoedAnswers(link);
+                                            if (scraped && scraped.length > 0) {
+                                                mergeAnswersIntoCache(c.code, scraped, 'AMAUOED');
+                                                injectDashboardCourseBadges();
+                                            }
+                                        }
+                                    }
                                 });
                             }
                         });

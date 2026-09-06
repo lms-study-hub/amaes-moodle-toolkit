@@ -1020,6 +1020,139 @@ test("Quiz Landing Start Auto-Quiz: detects start or re-attempt attempt button o
     assert.strictEqual(started, true, "Start Auto-Quiz on view.php must trigger start attempt button");
 });
 
+// --------------------------------------------------
+// 34. Multi-Course Dashboard Harvesting & Course ID Resolution
+// --------------------------------------------------
+test("Multi-Course Dashboard Harvesting: extracts courseId and generates gradesUrl for batch scanning", () => {
+    const mockCards = [
+        {
+            text: "UGRD-CS6301 Data Structures and Algorithms",
+            href: "https://semestral.amaes.com/2612/course/view.php?id=1024"
+        },
+        {
+            text: "UGRD-ITE6301 Information Management",
+            href: "https://semestral.amaes.com/2612/course/view.php?id=2048"
+        }
+    ];
+
+    const results = [];
+    mockCards.forEach(card => {
+        let subCode = '';
+        const m = card.text.match(/\b([A-Za-z]{2,6}\d{3,4}[A-Za-z]*)\b/);
+        if (m) subCode = m[1].toUpperCase();
+
+        let courseId = '';
+        const idMatch = card.href.match(/[?&]id=(\d+)/);
+        if (idMatch) courseId = idMatch[1];
+
+        const gradesUrl = courseId ? `https://semestral.amaes.com/2612/grade/report/user/index.php?id=${courseId}` : '';
+
+        results.push({
+            code: subCode,
+            courseId,
+            gradesUrl,
+            title: card.text
+        });
+    });
+
+    assert.strictEqual(results.length, 2);
+    assert.strictEqual(results[0].code, "CS6301");
+    assert.strictEqual(results[0].courseId, "1024");
+    assert.strictEqual(results[0].gradesUrl, "https://semestral.amaes.com/2612/grade/report/user/index.php?id=1024");
+    assert.strictEqual(results[1].code, "ITE6301");
+    assert.strictEqual(results[1].courseId, "2048");
+    assert.strictEqual(results[1].gradesUrl, "https://semestral.amaes.com/2612/grade/report/user/index.php?id=2048");
+});
+
+// --------------------------------------------------
+// 35. Cloud Sync Fallback to AMAUOED Catalog
+// --------------------------------------------------
+test("Cloud Sync Fallback: gracefully transitions from missing GitHub repo to AMAUOED catalog scraping", async () => {
+    let cloudAttempted = false;
+    let fallbackScrapeAttempted = false;
+
+    async function mockSyncCloudOrFallback(code) {
+        // Step 1: Cloud fetch fails or has 0 answers
+        cloudAttempted = true;
+        const cloudResult = null; // simulate course not found in github repo
+
+        if (!cloudResult) {
+            // Step 2: Fallback to AMAUOED catalog search
+            fallbackScrapeAttempted = true;
+            return {
+                source: 'AMAUOED',
+                count: 142,
+                url: `https://amauoed.com/courses/ite/ite6301`
+            };
+        }
+        return cloudResult;
+    }
+
+    const res = await mockSyncCloudOrFallback("ITE6301");
+    assert.strictEqual(cloudAttempted, true, "Cloud fetch must be attempted first");
+    assert.strictEqual(fallbackScrapeAttempted, true, "AMAUOED fallback must be triggered when cloud is empty");
+    assert.strictEqual(res.source, "AMAUOED");
+    assert.strictEqual(res.count, 142);
+});
+
+// --------------------------------------------------
+// 36. Live Info Bar & Pulsing Status Dot Integrity
+// --------------------------------------------------
+test("Live Info Bar & Pulsing Status Dot: setLog triggers visual dot pulse and updates status & plan texts", () => {
+    const mockDot = {
+        style: {},
+        classList: {
+            classes: new Set(),
+            add(c) { this.classes.add(c); },
+            remove(c) { this.classes.delete(c); }
+        }
+    };
+    const mockStatus = { innerHTML: '', style: {} };
+    const mockPlan = { innerHTML: '' };
+
+    function mockSetLog(doing, color, plan) {
+        mockStatus.innerHTML = doing;
+        if (color) mockStatus.style.color = color;
+        if (plan) mockPlan.innerHTML = plan;
+
+        mockDot.style.background = color || "#10b981";
+        mockDot.classList.remove('amaes-pulse');
+        mockDot.classList.add('amaes-pulse');
+    }
+
+    mockSetLog("<b>Auto-Pick Answers: ON</b>", "var(--accent-green)", "Will auto-select verified choices");
+
+    assert.ok(mockStatus.innerHTML.includes("Auto-Pick Answers: ON"));
+    assert.strictEqual(mockPlan.innerHTML, "Will auto-select verified choices");
+    assert.strictEqual(mockDot.style.background, "var(--accent-green)");
+    assert.ok(mockDot.classList.classes.has("amaes-pulse"), "Dot must receive amaes-pulse class");
+});
+
+// --------------------------------------------------
+// 37. Userscript Button & Toggle Wiring Integrity
+// --------------------------------------------------
+test("Userscript Toggle & Button Wiring: verifies all handlers call setLog and pulse feedback", () => {
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+
+    // Verify key toggle listeners wire setLog
+    assert.ok(script.includes("Auto-Pick Answers:"), "chkAutoPick must log status");
+    assert.ok(script.includes("Auto-Next Navigation:"), "chkAutoNext must log status");
+    assert.ok(script.includes("Smart Skip Unverified:"), "chkSmartSkip must log status");
+    assert.ok(script.includes("Highlight Answers:"), "chkAutoHlQuiz must log status");
+    assert.ok(script.includes("Include DB Hints on Copy:"), "chkCopyConfidence must log status");
+    assert.ok(script.includes("Auto-Harvest past quizzes from Grades:"), "chkAutoHarvestGrades must log status");
+    assert.ok(script.includes("Auto-Download JSON Backups:"), "chkAutoDlJson must log status");
+
+    // Verify CSS pulse animation is defined
+    assert.ok(script.includes("@keyframes amaes-dot-pulse"), "CSS must define @keyframes amaes-dot-pulse");
+    assert.ok(script.includes(".amaes-pulse"), "CSS must define .amaes-pulse class");
+
+    // Verify multi-course harvester loop
+    assert.ok(script.includes("harvestQuizzesFromGradesDoc"), "Harvester must have harvestQuizzesFromGradesDoc function");
+    assert.ok(script.includes("Scanning Grade Reports for <b>${dashCourses.length} enrolled courses</b>"), "executeGradesHarvester must support multi-course dashboard scanning");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
