@@ -2076,6 +2076,76 @@ test("Review Screen Full Mark Safety: questions that score 1.00 out of 1.00 are 
     assert.ok(script.includes("!ansText && isFullMark"), "Userscript must extract ansText from live DOM when question scored full marks");
 });
 
+// --------------------------------------------------
+// 63. Moodle Ground Truth Override & Checkmark Safety
+// --------------------------------------------------
+test("Moodle Ground Truth Override: Confirmed checkmark or 1.00 score purges conflicting distractors, blocks false debunking, and guarantees choice is highlighted as verified", () => {
+    // Simulate injectReviewQuestionMarkers ground-truth override
+    function processReviewGroundTruth(isFullMark, hasCheckmark, liveChoiceText, cachedWrongList) {
+        let ansText = liveChoiceText;
+        const wrongList = [...cachedWrongList];
+        const ansNorm = normalizeChoice(ansText);
+        const isConfirmedByMoodle = Boolean(isFullMark || hasCheckmark);
+
+        let isDebunked = false;
+        if (isConfirmedByMoodle && ansNorm) {
+            isDebunked = false;
+            // Purge conflicting wrongAnswers
+            for (let i = wrongList.length - 1; i >= 0; i--) {
+                const wNorm = typeof wrongList[i] === 'string' ? normalizeChoice(wrongList[i]) : (wrongList[i].norm || normalizeChoice(wrongList[i].text || ''));
+                if (wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm)) {
+                    wrongList.splice(i, 1);
+                }
+            }
+        } else if (ansNorm && wrongList.some(w => normalizeChoice(w) === ansNorm)) {
+            isDebunked = true;
+            ansText = '';
+        }
+
+        const isVerified = Boolean(!isDebunked && ansText && isConfirmedByMoodle);
+        return { isVerified, ansText, wrongList, isDebunked };
+    }
+
+    // Scenario: User answered "Address line", Moodle gave 1.00 out of 1.00 with checkmark,
+    // but AMAUOED scraper had erroneously placed "Address line" into wrongAnswers.
+    const result = processReviewGroundTruth(true, true, "Address line", ["Address line", "Control line"]);
+    assert.strictEqual(result.isDebunked, false, "Ground truth must PREVENT debunking when Moodle gives full mark");
+    assert.strictEqual(result.isVerified, true, "Ground truth must MARK choice as verified");
+    assert.strictEqual(result.ansText, "Address line", "Answer text must not be wiped");
+    assert.deepStrictEqual(result.wrongList, ["Control line"], "Conflicting distractor must be purged from wrongList");
+
+    // Scenario 2: Choice rows highlighting logic check
+    function evaluateChoiceHighlight(choiceText, hasDomCheckmark, verifiedNorms, allWrongList) {
+        const norm = normalizeChoice(choiceText);
+        const isVerifiedChoice = hasDomCheckmark || verifiedNorms.has(norm);
+        const isEliminatedChoice = !isVerifiedChoice && allWrongList.some(w => w.norm === norm);
+        
+        let badgeType = null;
+        if (!isEliminatedChoice && isVerifiedChoice) {
+            badgeType = "Verified";
+        } else if (!isVerifiedChoice && (isEliminatedChoice || allWrongList.length > 0)) {
+            const matchedWrong = allWrongList.find(w => w.norm === norm);
+            if (matchedWrong) badgeType = "Eliminated";
+        }
+        return { isVerifiedChoice, isEliminatedChoice, badgeType };
+    }
+
+    const verifiedSet = new Set(["address line"]);
+    const wrongItems = [{ norm: "address line", count: 1 }, { norm: "control line", count: 1 }];
+
+    const highlightRes = evaluateChoiceHighlight("Address line", true, verifiedSet, wrongItems);
+    assert.strictEqual(highlightRes.isVerifiedChoice, true, "Choice with DOM checkmark must be verified");
+    assert.strictEqual(highlightRes.isEliminatedChoice, false, "Choice with DOM checkmark must NEVER be eliminated");
+    assert.strictEqual(highlightRes.badgeType, "Verified", "Badge must be Verified, NOT Eliminated");
+
+    // Userscript code verification
+    const fs = require('fs');
+    const script = fs.readFileSync('amaes-moodle-toolkit.user.js', 'utf8');
+    assert.ok(script.includes("isConfirmedByMoodle"), "Userscript must define isConfirmedByMoodle ground-truth check");
+    assert.ok(script.includes("!isVerifiedChoice"), "Userscript must guard against eliminating verified choices");
+    assert.ok(script.includes("hasDomCheckmark"), "Userscript must check DOM checkmarks when evaluating choices");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);
