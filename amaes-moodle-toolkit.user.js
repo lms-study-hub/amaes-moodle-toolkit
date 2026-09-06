@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.0.9
+// @version      1.1.0
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.0.9";
+    const SCRIPT_VERSION = "v1.1.0";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
     const HOME_URL = "https://semestral.amaes.com/2612/my/courses.php";
@@ -4038,38 +4038,74 @@
         }
         if (!subCode) subCode = 'CS6301';
 
-        // Scan rows for completed quizzes
-        const rows = table.querySelectorAll('tr');
+        // Scan all candidate rows across document or tables
+        const candidateRows = Array.from(gradesDoc.querySelectorAll('.user-grade tr, .generaltable tr, table.table tr, tr'));
         const completedQuizzes = [];
+        const seenUrls = new Set();
 
-        rows.forEach(r => {
-            const quizLink = r.querySelector('a[href*="/mod/quiz/view.php"]');
+        candidateRows.forEach(r => {
+            const quizLink = r.querySelector('a[href*="/mod/quiz/"], a[href*="quiz"], a.gradeitemheader')
+                          || r.querySelector('.column-itemname a, th a, td:first-child a');
             if (!quizLink) return;
 
-            const rowText = r.innerText || '';
-            if (rowText.includes('( Empty )') || rowText.includes('(Empty)')) return;
+            const href = quizLink.getAttribute('href') || quizLink.href || '';
+            const rawTitle = quizLink.innerText.trim();
+            if (!rawTitle || (!href.includes('quiz') && !r.innerText.toLowerCase().includes('quiz'))) return;
 
-            const cells = r.querySelectorAll('td, th');
+            // Prevent empty or unattempted rows
+            const rowText = r.innerText || '';
+            if (rowText.includes('( Empty )') || rowText.includes('(Empty)') || rowText.includes('( empty )')) return;
+
+            let fullQuizUrl = '';
+            try {
+                fullQuizUrl = new URL(href, window.location.origin).href;
+            } catch (e) {
+                fullQuizUrl = href;
+            }
+            if (!fullQuizUrl || seenUrls.has(fullQuizUrl)) return;
+
+            // Determine if the quiz has a completed grade
+            const gradeCell = r.querySelector('.column-grade, [headers*="grade"], td.grade');
+            const pctCell = r.querySelector('.column-percentage, [headers*="percentage"]');
+
             let hasGrade = false;
             let gradeStr = '';
 
-            cells.forEach(c => {
-                const txt = c.innerText.trim();
-                if (/\b\d+(\.\d+)?\s*%?/.test(txt) && !txt.includes('0.00 %') && !txt.startsWith('0-')) {
+            if (gradeCell) {
+                const gText = gradeCell.innerText.trim();
+                if (gText && gText !== '-' && gText !== '–' && /\d/.test(gText)) {
                     hasGrade = true;
-                    gradeStr = txt;
+                    gradeStr = gText;
                 }
-            });
+            }
 
-            const gradeCell = r.querySelector('.column-grade, td:nth-child(3)');
-            if (gradeCell && gradeCell.innerText.trim() !== '-' && gradeCell.innerText.trim() !== '') {
-                hasGrade = true;
+            if (!hasGrade && pctCell) {
+                const pText = pctCell.innerText.trim();
+                if (pText && pText !== '-' && pText !== '–' && !pText.includes('0.00') && /\d/.test(pText)) {
+                    hasGrade = true;
+                    gradeStr = pText;
+                }
+            }
+
+            if (!hasGrade) {
+                const cells = Array.from(r.querySelectorAll('td, th'));
+                for (const c of cells) {
+                    if (c.contains(quizLink)) continue;
+                    const txt = c.innerText.trim();
+                    if (txt && txt !== '-' && txt !== '–' && !txt.includes('( Empty )') && !txt.includes('0.00 %') && !txt.startsWith('0-') && !txt.startsWith('0–') && /\b\d+(\.\d+)?\b/.test(txt)) {
+                        hasGrade = true;
+                        gradeStr = txt;
+                        break;
+                    }
+                }
             }
 
             if (hasGrade) {
+                seenUrls.add(fullQuizUrl);
+                const cleanTitle = rawTitle.replace(/^QUIZ\s+/i, '').replace(/\s+/g, ' ').trim();
                 completedQuizzes.push({
-                    title: quizLink.innerText.trim(),
-                    url: quizLink.href,
+                    title: cleanTitle || rawTitle,
+                    url: fullQuizUrl,
                     grade: gradeStr
                 });
             }
@@ -4090,7 +4126,7 @@
         for (let i = 0; i < completedQuizzes.length; i++) {
             const qz = completedQuizzes[i];
             if (statusCallback) statusCallback(i + 1, completedQuizzes.length, qz.title);
-            setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b>...`, "var(--accent-cyan)");
+            setLog(`[${i + 1}/${completedQuizzes.length}] Opening <b>${qz.title}</b> (Score: ${qz.grade})...`, "var(--accent-cyan)");
 
             try {
                 const viewResp = await fetch(qz.url);
@@ -4098,11 +4134,29 @@
                 const viewHtml = await viewResp.text();
                 const viewDoc = new DOMParser().parseFromString(viewHtml, 'text/html');
 
-                const reviewLinks = viewDoc.querySelectorAll('a[href*="/mod/quiz/review.php"]');
+                const reviewLinks = Array.from(viewDoc.querySelectorAll('a[href*="review.php"], a[href*="/mod/quiz/review.php"]'));
                 if (reviewLinks.length === 0) continue;
 
+                const seenReviewUrls = new Set();
                 for (const rLink of reviewLinks) {
-                    const reviewUrl = rLink.href;
+                    const rawHref = rLink.getAttribute('href') || rLink.href;
+                    if (!rawHref) continue;
+
+                    let reviewUrl = '';
+                    try {
+                        reviewUrl = new URL(rawHref, qz.url).href;
+                    } catch (e) {
+                        reviewUrl = rawHref;
+                    }
+
+                    // Append showall=1 to ensure all questions in attempt load on a single page
+                    if (!reviewUrl.includes('showall=')) {
+                        reviewUrl += (reviewUrl.includes('?') ? '&' : '?') + 'showall=1';
+                    }
+
+                    if (seenReviewUrls.has(reviewUrl)) continue;
+                    seenReviewUrls.add(reviewUrl);
+
                     const reviewResp = await fetch(reviewUrl);
                     if (!reviewResp.ok) continue;
                     const reviewHtml = await reviewResp.text();

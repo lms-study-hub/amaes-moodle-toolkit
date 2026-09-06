@@ -277,6 +277,16 @@ test("Grades Harvester: filters completed vs empty quiz rows accurately", () => 
     assert.strictEqual(completed[2].title, "Midterm Quiz 1");
 });
 
+test("Grades Harvester: resolves relative review URLs with &showall=1 query", () => {
+    const baseUrl = "https://semestral.amaes.com/2612/mod/quiz/view.php?id=1689";
+    const relativeReviewHref = "review.php?attempt=45230";
+    let reviewUrl = new URL(relativeReviewHref, baseUrl).href;
+    if (!reviewUrl.includes('showall=')) {
+        reviewUrl += (reviewUrl.includes('?') ? '&' : '?') + 'showall=1';
+    }
+    assert.strictEqual(reviewUrl, "https://semestral.amaes.com/2612/mod/quiz/review.php?attempt=45230&showall=1");
+});
+
 test("Background Relay Payload: formats anonymous payload with required schema", () => {
     const rawQuestions = [
         { qRaw: "What is Boolean algebra?", ansRaw: "Logic system", choices: ["A", "B"] }
