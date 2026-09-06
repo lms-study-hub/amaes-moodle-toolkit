@@ -1153,6 +1153,148 @@ test("Userscript Toggle & Button Wiring: verifies all handlers call setLog and p
     assert.ok(script.includes("Scanning Grade Reports for <b>${dashCourses.length} enrolled courses</b>"), "executeGradesHarvester must support multi-course dashboard scanning");
 });
 
+// --------------------------------------------------
+// 38. Multi-Choice Question Detection & AI Prompt Formatting
+// --------------------------------------------------
+test("Multi-Choice Question: formats AI prompt with multiple answer notice and tailored instructions", () => {
+    // Mock extractQuestionData logic
+    function mockExtractQuestionData(hasCheckboxes, promptText, qText) {
+        const isMultiChoice = Boolean(
+            hasCheckboxes ||
+            /select (?:one or more choices?|one or more|all that apply)/i.test(promptText) ||
+            /select (?:one or more choices?|one or more|all that apply)/i.test(qText)
+        );
+        return {
+            qText: qText.replace(/^Question\s*\d+[\s:.]*/i, '').trim(),
+            choices: ["a. RAM", "b. ROM", "c. Cache Memory", "d. Hard Disk"],
+            isMultiChoice
+        };
+    }
+
+    function mockFormatQuestionForAI(data, withHint = true) {
+        let output = '';
+        if (data.isMultiChoice) {
+            output += `[NOTE: MULTIPLE ANSWERS ALLOWED - SELECT ONE OR MORE CHOICES]\n`;
+        }
+        output += `${data.qText}\n\n`;
+        output += data.choices.join('\n');
+        if (withHint) {
+            if (data.isMultiChoice) {
+                output += `\n\nInstructions: This question allows MULTIPLE answers ("Select one or more"). Answer ONLY with ALL applicable option letters (e.g. "a, c" or "b, d") and their exact choice texts. Do NOT pick any confirmed wrong choices. Do NOT give explanations.`;
+            } else {
+                output += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and the exact choice text. Do NOT pick any confirmed wrong choices. Do NOT give explanations.`;
+            }
+        }
+        return output.trim();
+    }
+
+    const multiQData = mockExtractQuestionData(true, "Select one or more:", "Which of the following are types of volatile memory?");
+    assert.strictEqual(multiQData.isMultiChoice, true, "Question with checkboxes must be flagged as multi-choice");
+
+    const formattedPrompt = mockFormatQuestionForAI(multiQData, true);
+    assert.ok(formattedPrompt.includes("[NOTE: MULTIPLE ANSWERS ALLOWED - SELECT ONE OR MORE CHOICES]"), "AI prompt must notify that multiple choices are allowed");
+    assert.ok(formattedPrompt.includes("Instructions: This question allows MULTIPLE answers"), "AI prompt instructions must ask for all applicable option letters");
+    assert.ok(formattedPrompt.includes("e.g. \"a, c\" or \"b, d\""), "AI prompt instructions must provide multi-letter example");
+
+    const singleQData = mockExtractQuestionData(false, "Select one:", "What does CPU stand for?");
+    assert.strictEqual(singleQData.isMultiChoice, false, "Single choice radio question must NOT be flagged as multi-choice");
+    const singlePrompt = mockFormatQuestionForAI(singleQData, true);
+    assert.strictEqual(singlePrompt.includes("[NOTE: MULTIPLE ANSWERS ALLOWED"), false, "Single choice must NOT have multi-choice notice");
+    assert.ok(singlePrompt.includes("Answer ONLY with the correct option letter (a, b, c, or d)"), "Single choice must have standard letter instructions");
+});
+
+// --------------------------------------------------
+// 39. Multi-Letter AI Clipboard Auto-Selection ('V' Shortcut)
+// --------------------------------------------------
+test("Multi-Letter AI Clipboard: pressing V clicks all corresponding checkboxes for multi-answer response", () => {
+    function mockParseAiClipboard(clipboardText, isCheckbox, inputs) {
+        const cleanText = clipboardText.trim();
+        const multiLetters = cleanText.match(/\b([a-dA-D])\b/g);
+        if (isCheckbox && multiLetters && multiLetters.length > 1) {
+            const uniqueLetters = Array.from(new Set(multiLetters.map(l => l.toUpperCase())));
+            let checkedCount = 0;
+            uniqueLetters.forEach(letter => {
+                const idx = letter.charCodeAt(0) - 65;
+                if (inputs[idx]) {
+                    if (!inputs[idx].checked) {
+                        inputs[idx].click();
+                    }
+                    checkedCount++;
+                }
+            });
+            return { handled: true, count: checkedCount, letters: uniqueLetters };
+        }
+        return { handled: false };
+    }
+
+    const checkboxes = [
+        { checked: false, click() { this.checked = true; } },
+        { checked: false, click() { this.checked = true; } },
+        { checked: false, click() { this.checked = true; } },
+        { checked: false, click() { this.checked = true; } }
+    ];
+
+    // Simulate AI returning "The correct answers are a and c"
+    const aiResponse = "The correct answers are a and c: a. RAM, c. Cache Memory";
+    const res = mockParseAiClipboard(aiResponse, true, checkboxes);
+
+    assert.strictEqual(res.handled, true, "Multi-letter AI clipboard response must be handled");
+    assert.deepStrictEqual(res.letters, ["A", "C"], "Must extract options A and C");
+    assert.strictEqual(checkboxes[0].checked, true, "Option A must be checked");
+    assert.strictEqual(checkboxes[1].checked, false, "Option B must remain unchecked");
+    assert.strictEqual(checkboxes[2].checked, true, "Option C must be checked");
+    assert.strictEqual(checkboxes[3].checked, false, "Option D must remain unchecked");
+});
+
+// --------------------------------------------------
+// 40. Multi-Answer Auto-Next Progression Gate
+// --------------------------------------------------
+test("Multi-Answer Auto-Next Gate: requires all verified highlighted choices to be checked before advancing", () => {
+    function mockAreAllPageQuestionsAnswered(highlightedBoxesChecked, totalHighlighted) {
+        if (totalHighlighted > 1) {
+            return highlightedBoxesChecked === totalHighlighted;
+        }
+        return highlightedBoxesChecked > 0;
+    }
+
+    // 2 verified answers required (e.g. A and C)
+    assert.strictEqual(mockAreAllPageQuestionsAnswered(1, 2), false, "Must NOT allow auto-next when only 1 of 2 verified answers is checked");
+    assert.strictEqual(mockAreAllPageQuestionsAnswered(2, 2), true, "Allows auto-next once all 2 verified answers are checked");
+    // Single choice questions
+    assert.strictEqual(mockAreAllPageQuestionsAnswered(1, 1), true, "Allows auto-next when single choice is checked");
+});
+
+// --------------------------------------------------
+// 41. Multi-Answer Review Harvesting & Consensus Merging
+// --------------------------------------------------
+test("Multi-Answer Harvesting & Cache: splits rightAnswer into answers array and deduplicates on merge", () => {
+    function mockHarvestRightAnswer(rawRightAnswer) {
+        let cleaned = rawRightAnswer.replace(/^The correct answers? (is|are):?\s*['"]?/i, '').replace(/['"]?\s*$/i, '').trim();
+        const answersList = cleaned ? cleaned.split(/[,;&\n]+|\s+and\s+/i).map(s => s.trim()).filter(Boolean) : [];
+        return {
+            ansRaw: cleaned,
+            ansNorm: normalizeChoice(cleaned),
+            answers: answersList.length > 1 ? answersList : undefined
+        };
+    }
+
+    const harvested = mockHarvestRightAnswer("The correct answers are: Static RAM, Dynamic RAM");
+    assert.strictEqual(harvested.ansRaw, "Static RAM, Dynamic RAM");
+    assert.deepStrictEqual(harvested.answers, ["Static RAM", "Dynamic RAM"], "Must parse individual choices into answers array");
+
+    // Cache merge deduplication test
+    const existingEntry = {
+        qNorm: "what types of ram exist",
+        ansRaw: "Static RAM, Dynamic RAM",
+        answers: ["Static RAM", "Dynamic RAM"]
+    };
+    const incomingItem = {
+        answers: ["Dynamic RAM", "Cache SRAM"]
+    };
+    existingEntry.answers = Array.from(new Set(existingEntry.answers.concat(incomingItem.answers)));
+    assert.deepStrictEqual(existingEntry.answers, ["Static RAM", "Dynamic RAM", "Cache SRAM"], "Must merge and deduplicate multiple answer choices");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

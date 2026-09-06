@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AMAES Moodle Toolkit
 // @namespace    https://semestral.amaes.com/
-// @version      1.2.8
+// @version      1.2.9
 // @description  Modular toolkit for AMAES Moodle with AI Quiz Question & Choice Auto-Copier, Grades Past Quiz Harvester, Background Community Answer Sync, and Auto-Marker.
 // @author       Anonymous / Open LMS Contributor
 // @match        https://semestral.amaes.com/*
@@ -27,7 +27,7 @@
         return;
     }
 
-    const SCRIPT_VERSION = "v1.2.8";
+    const SCRIPT_VERSION = "v1.2.9";
     const SCRIPT_RAW_URL = "https://raw.githubusercontent.com/lms-study-hub/amaes-moodle-toolkit/main/amaes-moodle-toolkit.user.js";
     const GITHUB_REPO_URL = "https://github.com/lms-study-hub/amaes-moodle-toolkit";
 
@@ -1143,8 +1143,8 @@
         text = text.toLowerCase().trim();
         // Normalize unicode dashes/minus signs to standard hyphen
         text = text.replace(/[\u2212\u2013\u2014]/g, '-');
-        // Remove prefix like "select one: ", "a. ", "b) " safely without stripping negative signs
-        text = text.replace(/^select one:?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
+        // Remove prefix like "select one: ", "select one or more: ", "a. ", "b) " safely without stripping negative signs
+        text = text.replace(/^select (?:one or more choices?|one or more|all that apply|one):?\s*/i, '').replace(/^[a-e][.)]\s*/i, '');
         text = text.replace(/\s+/g, ' ');
         text = text.replace(/[.:?!;,]+$/, '');
         text = unscriptDigits(text);
@@ -1660,11 +1660,17 @@
                 continue;
             }
 
-            // 2. Checkbox: check if any checkbox in question is checked
+            // 2. Checkbox: multi-choice questions (require all verified highlighted choices to be checked)
             const checkboxes = que.querySelectorAll('.answer input[type="checkbox"]');
             if (checkboxes.length > 0) {
-                const anyChecked = Array.from(checkboxes).some(c => c.checked);
-                if (!anyChecked) return false;
+                const highlightedBoxes = que.querySelectorAll('.amaes-highlighted-choice input[type="checkbox"]');
+                if (highlightedBoxes.length > 1) {
+                    const allVerifiedChecked = Array.from(highlightedBoxes).every(c => c.checked);
+                    if (!allVerifiedChecked) return false;
+                } else {
+                    const anyChecked = Array.from(checkboxes).some(c => c.checked);
+                    if (!anyChecked) return false;
+                }
                 continue;
             }
 
@@ -2219,7 +2225,33 @@
                 return;
             }
 
-            // 1. Direct letter matching: Look for option letter (A, B, C, D)
+            const isCheckbox = targetQue.querySelectorAll('.answer input[type="checkbox"]').length > 0;
+
+            // 1. Multi-letter matching for multi-choice checkbox questions (e.g. "a, c", "a and d", "A, B, C")
+            const multiLetters = cleanText.match(/\b([a-dA-D])\b/g);
+            if (isCheckbox && multiLetters && multiLetters.length > 1) {
+                const uniqueLetters = Array.from(new Set(multiLetters.map(l => l.toUpperCase())));
+                let checkedCount = 0;
+                uniqueLetters.forEach(letter => {
+                    const idx = letter.charCodeAt(0) - 65;
+                    if (inputElements[idx]) {
+                        if (!inputElements[idx].checked) {
+                            inputElements[idx].click();
+                        }
+                        checkedCount++;
+                    }
+                });
+                if (checkedCount > 0) {
+                    showToast(`Auto-selected Options ${uniqueLetters.join(', ')} from AI clipboard`);
+                    setLog(`AI Paste: Selected multiple choices <b>${uniqueLetters.join(', ')}</b>`, "var(--accent-green)");
+                    if (autoNextQuiz) {
+                        scheduleAutoNextAfterAnswer(1200);
+                    }
+                    return;
+                }
+            }
+
+            // 2. Direct single letter matching: Look for option letter (A, B, C, D)
             const matchLetter = cleanText.match(/(?:^|\b)(?:answer|option|choice|the correct answer is)?\s*[:\-–*]*\s*([a-dA-D])(?:\.|\)|:|\s|$)/i);
             if (matchLetter && matchLetter[1]) {
                 const letter = matchLetter[1].toUpperCase();
@@ -2229,7 +2261,7 @@
                     showToast(`Auto-selected Option ${letter} from AI clipboard`);
                     setLog(`AI Paste: Selected Option <b>${letter}</b> from clipboard`, "var(--accent-green)");
                     if (autoNextQuiz) {
-                        scheduleAutoNextAfterAnswer(800);
+                        scheduleAutoNextAfterAnswer(isCheckbox ? 1200 : 800);
                     }
                     return;
                 }
@@ -2397,12 +2429,13 @@
                     const choices = Array.from(targetQue.querySelectorAll('.answer input[type="radio"], .answer input[type="checkbox"]'));
                     if (choices[optIndex]) {
                         e.preventDefault();
+                        const isCheckbox = choices[optIndex].type === 'checkbox';
                         choices[optIndex].click();
                         const choiceLabel = key >= '1' && key <= '9' ? String.fromCharCode(65 + optIndex) : key;
                         showToast(`Shortcut: Selected Choice ${choiceLabel}`);
                         setLog(`Keyboard shortcut: Selected choice <b>${choiceLabel}</b>`, "var(--accent-blue)");
                         if (autoNextQuiz) {
-                            scheduleAutoNextAfterAnswer(800);
+                            scheduleAutoNextAfterAnswer(isCheckbox ? 1400 : 800);
                         }
                     }
                 }
@@ -2514,11 +2547,19 @@
                     for (const cand of candidates) {
                         const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || cand.answer || '');
                         if (!ansNorm) continue;
-                        const isDirectMatch = choiceText === ansNorm;
-                        const isMultiAnswerMatch = (ansNorm.includes(',') || ansNorm.includes(';') || ansNorm.includes('&')) &&
-                            ansNorm.split(/[,;&]+/).map(s => normalizeChoice(s)).includes(choiceText);
+                        let isChoiceMatch = (choiceText === ansNorm);
+                        if (!isChoiceMatch) {
+                            const subCandidates = (Array.isArray(cand.answers) ? cand.answers : [])
+                                .concat((cand.ansRaw || '').split(/[,;&\n]+|\s+and\s+/i))
+                                .concat((cand.answer || '').split(/[,;&\n]+|\s+and\s+/i))
+                                .map(s => normalizeChoice(s))
+                                .filter(Boolean);
+                            if (subCandidates.includes(choiceText)) {
+                                isChoiceMatch = true;
+                            }
+                        }
 
-                        if (isDirectMatch || isMultiAnswerMatch) {
+                        if (isChoiceMatch) {
                             foundMatchForQuestion = true;
 
                         const isAmauoed = Boolean((cand.source || '').toLowerCase().includes('amauoed') || (Array.isArray(cand.sources) && cand.sources.some(s => s.toLowerCase().includes('amauoed'))));
@@ -3444,10 +3485,22 @@
             });
         }
 
+        // 6. Multi-Choice check (checkboxes or "Select one or more")
+        const promptElem = que.querySelector('.prompt, .formulation .prompt');
+        const promptText = promptElem ? promptElem.innerText : '';
+        const hasCheckboxes = que.querySelectorAll('.answer input[type="checkbox"]').length > 0;
+        const isMultiChoice = Boolean(
+            hasCheckboxes ||
+            /select (?:one or more choices?|one or more|all that apply)/i.test(promptText) ||
+            /select (?:one or more choices?|one or more|all that apply)/i.test(que.innerText || '') ||
+            /select (?:one or more choices?|one or more|all that apply)/i.test(qText)
+        );
+
         return {
             qNum,
             qText,
             choices,
+            isMultiChoice,
             isShortAnswer,
             matchPairs,
             questionImages
@@ -3505,7 +3558,11 @@
         const data = extractQuestionData(que);
         if (!data || !data.qText) return '';
 
-        let output = `${data.qText}\n\n`;
+        let output = '';
+        if (data.isMultiChoice) {
+            output += `[NOTE: MULTIPLE ANSWERS ALLOWED - SELECT ONE OR MORE CHOICES]\n`;
+        }
+        output += `${data.qText}\n\n`;
 
         // Check if database has confirmed wrong choices for this question
         const courseInfo = detectCourseInfo();
@@ -3563,7 +3620,11 @@
             }
 
             if (withHint) {
-                output += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and the exact choice text. Do NOT pick any confirmed wrong choices. Do NOT give explanations.`;
+                if (data.isMultiChoice) {
+                    output += `\n\nInstructions: This question allows MULTIPLE answers ("Select one or more"). Answer ONLY with ALL applicable option letters (e.g. "a, c" or "b, d") and their exact choice texts. Do NOT pick any confirmed wrong choices. Do NOT give explanations.`;
+                } else {
+                    output += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and the exact choice text. Do NOT pick any confirmed wrong choices. Do NOT give explanations.`;
+                }
             }
         } else if (data.matchPairs && data.matchPairs.length > 0) {
             output += `Matching items:\n`;
@@ -3608,7 +3669,7 @@
 
         let res = formatted.join('\n\n---\n\n');
         if (withHint && res) {
-            res += `\n\nInstructions: Answer ONLY with the correct option letter (a, b, c, or d) and exact text for each question. Do NOT explain.`;
+            res += `\n\nInstructions: Answer ONLY with the correct option letter (or all applicable letters if multiple answers are allowed, e.g. "a, c") and exact text for each question. Do NOT explain.`;
         }
 
         const intro = buildAiContextIntro();
@@ -3871,6 +3932,7 @@
                     qNorm: qNorm,
                     ansRaw: ansRaw,
                     ansNorm: ansNorm,
+                    answers: Array.isArray(newItem.answers) && newItem.answers.length > 0 ? newItem.answers : undefined,
                     choices: newItem.choices || [],
                     verified: Boolean(newItem.verified),
                     period: newItem.period || newItem.term || detectTermFromText(newItem.quizTitle || newItem.qRaw || '') || 'General',
@@ -3906,6 +3968,9 @@
                     cur.period = newItem.period;
                 }
                 if (!cur.quizTitle && newItem.quizTitle) cur.quizTitle = newItem.quizTitle;
+                if (Array.isArray(newItem.answers) && newItem.answers.length > 0) {
+                    cur.answers = Array.from(new Set((cur.answers || []).concat(newItem.answers)));
+                }
 
                 if (!Array.isArray(cur.wrongAnswers)) {
                     cur.wrongAnswers = normalizeWrongAnswers(cur.wrongAnswers);
@@ -4479,12 +4544,15 @@
                 if (rightAnswer) correctCount++;
                 eliminatedTotal += wrongAnswers.length;
                 const detectedPeriod = detectTermFromText(quizTitle) || 'General';
+                const rightAnswersList = rightAnswer ? rightAnswer.split(/[,;&\n]+|\s+and\s+/i).map(s => s.trim()).filter(Boolean) : [];
                 harvested.push({
                     index: idx + 1,
                     qRaw: qData.qText,
                     qNorm: normalizeText(qData.qText),
                     ansRaw: rightAnswer,
                     ansNorm: normalizeChoice(rightAnswer),
+                    answers: rightAnswersList.length > 1 ? rightAnswersList : undefined,
+                    isMultiChoice: Boolean(qData.isMultiChoice),
                     wrongAnswers: normalizeWrongAnswers(wrongAnswers),
                     choices: qData.choices,
                     verified: isVerified,
