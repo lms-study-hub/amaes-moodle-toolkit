@@ -747,6 +747,53 @@ test("Harvester Dynamic Fallback: avoids hardcoded subject code when table detec
     assert.notStrictEqual(resolveSubjectCode('', '123'), 'CS6301', "Must never hardcode CS6301 on unknown course!");
 });
 
+// --------------------------------------------------
+// 25. Question Text Subscript Normalization & Base Collision Guard
+// --------------------------------------------------
+test("Question Normalization: unscripts digits so distinct bases do not collide", () => {
+    function normalizeTextTest(str) {
+        if (!str) return '';
+        let text = str.toLowerCase().trim();
+        text = unscriptDigits(text);
+        text = text.replace(/^(question\s*\d+[\s:.]*|\d+[\s:.)]+)/, '');
+        text = text.replace(/\s+/g, ' ');
+        text = text.replace(/[.:?!;,]+$/, '');
+        return text.trim();
+    }
+
+    const octalQ = normalizeTextTest("Convert (22)₈ into its corresponding decimal number.");
+    const hexQ = normalizeTextTest("Convert (22)₁₆ into its corresponding decimal number.");
+    const binQ = normalizeTextTest("Convert (22)₂ into its corresponding decimal number.");
+
+    assert.strictEqual(octalQ, "convert (22)8 into its corresponding decimal number");
+    assert.strictEqual(hexQ, "convert (22)16 into its corresponding decimal number");
+    assert.strictEqual(binQ, "convert (22)2 into its corresponding decimal number");
+    assert.notStrictEqual(octalQ, hexQ, "Octal and Hex questions must NOT collide!");
+    assert.notStrictEqual(octalQ, binQ, "Octal and Binary questions must NOT collide!");
+});
+
+// --------------------------------------------------
+// 26. Contradiction Guard: Prevents Eliminating 100% of Choices
+// --------------------------------------------------
+test("Contradiction Guard: retains at least 1 candidate when all choices marked wrong", () => {
+    const choices = ["a. 82", "b. 18", "c. 28", "d. 81"];
+    let allWrongList = [
+        { norm: "18", count: 1 },
+        { norm: "81", count: 2 },
+        { norm: "28", count: 3 },
+        { norm: "82", count: 4 }
+    ];
+
+    if (choices.length >= 2 && allWrongList.length >= choices.length) {
+        allWrongList.sort((a, b) => (b.count || 1) - (a.count || 1));
+        allWrongList.splice(choices.length - 1);
+    }
+
+    assert.strictEqual(allWrongList.length, 3, "Must retain at most 3 wrong choices out of 4!");
+    // The choice with lowest count (18, count: 1) is spared!
+    assert.strictEqual(allWrongList.some(w => w.norm === "18"), false, "Choice with lowest failure count must be freed!");
+});
+
 console.log("\n==================================================");
 console.log(`TOTAL TESTS: ${passed + failed}`);
 console.log(`PASSED:      ${passed}`);

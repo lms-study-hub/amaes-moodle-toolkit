@@ -1024,6 +1024,7 @@
         const doc = new DOMParser().parseFromString(str, 'text/html');
         let text = doc.body.textContent || '';
         text = text.toLowerCase().trim();
+        text = unscriptDigits(text);
         // Remove question numbering like "1.", "question 1:"
         text = text.replace(/^(question\s*\d+[\s:.]*|\d+[\s:.)]+)/, '');
         // Strip multiple underscores down to single placeholder
@@ -2465,12 +2466,14 @@
 
             // Compile all eliminated wrong choices known for this question
             const allWrongList = [];
+            const verifiedNorms = candidates.map(c => c.ansNorm || normalizeChoice(c.ansRaw || c.answer || '')).filter(Boolean);
             candidates.forEach(cand => {
                 if (Array.isArray(cand.wrongAnswers)) {
                     cand.wrongAnswers.forEach(w => {
                         const wNorm = typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || ''));
                         const wCount = typeof w === 'object' && typeof w.count === 'number' ? w.count : 1;
-                        if (wNorm && !allWrongList.some(item => item.norm === wNorm)) {
+                        // Never add known verified answer to allWrongList!
+                        if (wNorm && !verifiedNorms.includes(wNorm) && !allWrongList.some(item => item.norm === wNorm)) {
                             allWrongList.push({ norm: wNorm, text: typeof w === 'string' ? w : w.text, count: wCount });
                         }
                     });
@@ -2485,6 +2488,14 @@
             if (choiceRows.length === 0) {
                 choiceRows = que.querySelectorAll('.answer label');
             }
+
+            // Contradiction Guard: A multiple-choice question cannot have 100% of choices wrong!
+            // If all choices are marked wrong, keep only those with higher failure counts, preserving at least 1 candidate.
+            if (choiceRows.length >= 2 && allWrongList.length >= choiceRows.length) {
+                allWrongList.sort((a, b) => (b.count || 1) - (a.count || 1));
+                allWrongList.splice(choiceRows.length - 1);
+            }
+
             const isRadio = que.querySelector('.answer input[type="radio"]') !== null;
             let foundMatchForQuestion = false;
 
@@ -3377,18 +3388,46 @@
         const subCode = courseInfo.subjectCode || 'GENERAL';
         const cached = getCachedAnswers(subCode);
         let eliminatedWrong = [];
+        let detectedAnswer = null;
         if (cached && cached.length > 0) {
             const moodleQNorm = normalizeText(data.qText);
             const cand = cached.find(c => c.qNorm === moodleQNorm || (c.qNorm.length > 20 && (c.qNorm.includes(moodleQNorm) || moodleQNorm.includes(c.qNorm))));
-            if (cand && Array.isArray(cand.wrongAnswers) && cand.wrongAnswers.length > 0) {
-                eliminatedWrong = cand.wrongAnswers.map(w => typeof w === 'string' ? w : w.text).filter(Boolean);
+            if (cand) {
+                if (cand.ansRaw) {
+                    const isDeduced = Boolean(cand.deduced);
+                    const isVerified = Boolean(cand.verified);
+                    const isAmauoed = cand.source === 'amauoed';
+                    const prob = isVerified ? 100 : (isAmauoed ? 95 : 90);
+                    const label = isDeduced ? 'Deduced • 100% Probability' : (isVerified ? 'Verified • 100% Probability' : `${prob}% Probability`);
+                    detectedAnswer = {
+                        text: cand.ansRaw,
+                        label: label,
+                        source: cand.source || 'Verified Database'
+                    };
+                }
+                if (Array.isArray(cand.wrongAnswers) && cand.wrongAnswers.length > 0) {
+                    const ansNorm = cand.ansNorm || normalizeChoice(cand.ansRaw || '');
+                    eliminatedWrong = cand.wrongAnswers
+                        .map(w => typeof w === 'string' ? w : w.text)
+                        .filter(w => {
+                            if (!w) return false;
+                            const wNorm = normalizeChoice(w);
+                            if (ansNorm && (wNorm === ansNorm || unscriptDigits(wNorm) === unscriptDigits(ansNorm))) return false;
+                            return true;
+                        });
+                }
             }
         }
 
         if (data.choices && data.choices.length > 0) {
             output += data.choices.join('\n');
 
-            if (eliminatedWrong.length > 0) {
+            if (detectedAnswer) {
+                output += `\n\n[DETECTED ANSWER IN DATABASE]:\n- Suggested: ${detectedAnswer.text} (${detectedAnswer.label} • ${detectedAnswer.source})`;
+            }
+
+            // Contradiction guard: never eliminate all choices in AI instructions
+            if (eliminatedWrong.length > 0 && eliminatedWrong.length < data.choices.length) {
                 output += `\n\n[CONFIRMED WRONG CHOICES - DO NOT SELECT]:\n` + eliminatedWrong.map(w => `- ${w} (Confirmed INCORRECT in previous attempt)`).join('\n');
             }
 
@@ -3742,7 +3781,11 @@
 
                 // Merge incoming wrong answers with weighting
                 incomingWrong.forEach(inW => {
-                    const existingW = cur.wrongAnswers.find(w => w.norm === inW.norm);
+                    // Safety Guard: Never add known verified answer into wrong answers list
+                    if (cur.ansNorm && (inW.norm === cur.ansNorm || unscriptDigits(inW.norm) === unscriptDigits(cur.ansNorm))) {
+                        return;
+                    }
+                    const existingW = cur.wrongAnswers.find(w => w.norm === inW.norm || unscriptDigits(w.norm) === unscriptDigits(inW.norm));
                     if (existingW) {
                         existingW.count = (existingW.count || 1) + (inW.count || 1);
                         if (!existingW.sources) existingW.sources = [];
@@ -3803,6 +3846,14 @@
                             conflictCount++;
                         }
                     }
+                }
+
+                // Safety Guard: Purge confirmed answer from wrongAnswers!
+                if (cur.ansNorm && Array.isArray(cur.wrongAnswers)) {
+                    cur.wrongAnswers = cur.wrongAnswers.filter(w => {
+                        const wNorm = typeof w === 'string' ? normalizeChoice(w) : (w.norm || normalizeChoice(w.text || ''));
+                        return wNorm !== cur.ansNorm && unscriptDigits(wNorm) !== unscriptDigits(cur.ansNorm);
+                    });
                 }
 
                 // Deduction check for existing item if still missing verified answer
